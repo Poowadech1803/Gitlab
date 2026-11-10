@@ -51,7 +51,7 @@ sub{font-size:.72em}
 .calc-btn svg{width:19px;height:19px}
 
 /* ---------- Circuit ---------- */
-.circuit{display:block;width:100%;height:auto;max-height:360px;margin:2px auto 0}
+.circuit{display:block;width:100%;height:auto;max-height:340px;margin:2px auto 0}
 
 /* ---------- Results ---------- */
 .result-table{width:100%;border-collapse:collapse;font-size:14px}
