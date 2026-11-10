@@ -9,16 +9,17 @@
 <body>
 <header class="hero">
   <div class="wrap">
-    <div class="eyebrow">ENG29 2121 · Lab 02 · 2/2569</div>
+    <div class="eyebrow">ENG29 2121 · LAB 02 · 2/2569</div>
     <h1>BJT DC Bias Web App</h1>
-    <p>Common-Emitter Voltage-Divider Bias · Forward-Active Approximation
-       (β คงที่, VBE คงที่) — คำนวณโดย Python Backend</p>
+    <p>คำนวณ DC Operating Point ของวงจร NPN Common-Emitter ด้วย Python Backend</p>
   </div>
 </header>
-<main class="wrap">
+<main>
+  <!-- ================= INPUT PARAMETERS ================= -->
   <section class="card">
     <h2>ข้อมูลวงจร (Circuit Parameters)</h2>
-    <form method="post" action="/calculate" class="grid">
+    <p class="muted">กรอกค่าอุปกรณ์เป็นตัวเลข — ตัวต้านทานในหน่วย Ω (100 kΩ = 100000)</p>
+    <form method="post" action="/calculate" class="form-grid">
       <label>VCC [V]
         <input type="number" step="any" name="vcc" value="{{ form.vcc }}" required>
       </label>
@@ -37,8 +38,8 @@
       <label>β (beta)
         <input type="number" step="any" name="beta" value="{{ form.beta }}" required>
       </label>
-      <label>VBE [V] <span class="muted">(optional, default 0.70)</span>
-        <input type="number" step="any" name="vbe" value="{{ form.vbe }}">
+      <label>VBE [V]
+        <input type="number" step="any" name="vbe" value="{{ form.vbe }}" placeholder="0.70">
       </label>
       <div class="actions">
         <button type="submit">Calculate DC Bias</button>
@@ -48,37 +49,47 @@
   </section>
 
   {% if errors %}
+  <!-- ================= VALIDATION ERRORS ================= -->
   <section class="card error-card">
     <h2>ข้อผิดพลาดของข้อมูลนำเข้า (Input Validation Errors)</h2>
-    <ul class="errors">
-      {% for e in errors %}<li>{{ e }}</li>{% endfor %}
-    </ul>
-    <p class="muted">แก้ค่าในฟอร์มด้านบนแล้วกด Calculate อีกครั้ง — หน้าเว็บไม่ล้ม</p>
+    <div class="note">
+      <ul class="errors">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+      <p class="muted">แก้ค่าในฟอร์มด้านบนแล้วกด Calculate อีกครั้ง — หน้าเว็บไม่ล้ม</p>
+    </div>
   </section>
   {% endif %}
 
   {% if result %}
+  <!-- ================= DC OPERATING POINT ================= -->
   <section class="card">
-    <h2>DC Operating Point (จุดทำงาน DC)</h2>
-    <table class="results">
-      <thead><tr><th>ปริมาณ</th><th>ค่า</th><th>หน่วย</th></tr></thead>
+    <h2>ผลการคำนวณ DC Bias</h2>
+    <table>
+      <thead><tr><th>ปริมาณ (Quantity)</th><th>ค่า (Value)</th><th>หน่วย (Unit)</th></tr></thead>
       <tbody>
-        <tr><td>VB (Base voltage)</td><td>{{ "%.3f"|format(result.vb) }}</td><td>V</td></tr>
-        <tr><td>VE (Emitter voltage)</td><td>{{ "%.3f"|format(result.ve) }}</td><td>V</td></tr>
-        <tr><td>VC (Collector voltage)</td><td>{{ "%.3f"|format(result.vc) }}</td><td>V</td></tr>
-        <tr><td>VCE</td><td>{{ "%.3f"|format(result.vce) }}</td><td>V</td></tr>
-        <tr><td>IC (Collector current)</td><td>{{ "%.4f"|format(result.ic_ma) }}</td><td>mA</td></tr>
-        <tr><td>IB (Base current)</td><td>{{ "%.2f"|format(result.ib_ua) }}</td><td>µA</td></tr>
-        <tr><td>IE (Emitter current)</td><td>{{ "%.4f"|format(result.ie_ma) }}</td><td>mA</td></tr>
-        <tr><td>VTH (Thevenin voltage)</td><td>{{ "%.3f"|format(result.vth) }}</td><td>V</td></tr>
-        <tr><td>RTH (Thevenin resistance)</td><td>{{ "%.1f"|format(result.rth) }}</td><td>Ω</td></tr>
+        <tr><td>VB (Base voltage)</td><td class="val">{{ "%.3f"|format(result.vb) }}</td><td class="unit">V</td></tr>
+        <tr><td>VE (Emitter voltage)</td><td class="val">{{ "%.3f"|format(result.ve) }}</td><td class="unit">V</td></tr>
+        <tr><td>VC (Collector voltage)</td><td class="val">{{ "%.3f"|format(result.vc) }}</td><td class="unit">V</td></tr>
+        <tr><td>VCE</td><td class="val">{{ "%.3f"|format(result.vce) }}</td><td class="unit">V</td></tr>
+        <tr><td>IC (Collector current)</td><td class="val">{{ "%.4f"|format(result.ic_ma) }}</td><td class="unit">mA</td></tr>
+        <tr><td>IB (Base current)</td><td class="val">{{ "%.2f"|format(result.ib_ua) }}</td><td class="unit">µA</td></tr>
+        <tr><td>IE (Emitter current)</td><td class="val">{{ "%.4f"|format(result.ie_ma) }}</td><td class="unit">mA</td></tr>
+        <tr><td>VTH (Thevenin voltage)</td><td class="val">{{ "%.3f"|format(result.vth) }}</td><td class="unit">V</td></tr>
+        <tr><td>RTH (Thevenin resistance)</td><td class="val">{{ "%.1f"|format(result.rth) }}</td><td class="unit">Ω</td></tr>
       </tbody>
     </table>
-    <p class="region region-{{ 'ok' if result.region == 'forward-active' else 'warn' }}">
-      <strong>Operating region:</strong> {{ result.region }}
-    </p>
+
+    {% if result.region == 'forward-active' %}
+    <div class="good"><strong>Operating region:</strong> {{ result.region }} —
+      อยู่ในสมมติฐาน Forward-Active (แบบจำลอง β และ VBE คงที่ใช้ได้)</div>
+    {% else %}
+    <div class="note"><strong>Operating region:</strong> {{ result.region }} —
+      ผลลัพธ์อยู่นอกสมมติฐาน Forward-Active</div>
+    {% endif %}
+
     {% if result.warnings %}
-    <div class="warning-box">
+    <div class="note">
       <strong>คำเตือน (Model limitation):</strong>
       <ul>{% for w in result.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
     </div>
@@ -86,6 +97,6 @@
   </section>
   {% endif %}
 </main>
-<footer>ENG29 2121 · Lab 02 · Flask + Jinja + Python · DC Bias only</footer>
+<footer>ENG29 2121 · Lab 02 · Flask + Jinja + Python Backend · DC Bias only (Week 2 scope)</footer>
 </body>
 </html>
