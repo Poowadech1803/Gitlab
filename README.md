@@ -90,7 +90,32 @@ VCE = VC − VE
 | Emitter | RB=1 MΩ, RE=1 kΩ | 1.0263 mA | 8.7054 V |
 | Emitter | RB=1 MΩ, RE=2 kΩ | 0.9401 mA | 8.0328 V |
 
-ตารางผลจริงที่อ่านจาก browser พร้อมหลักฐาน: [`docs/validation.md`](docs/validation.md)
+## ผลตรวจ A1–A5 ผ่าน Browser จริง
+
+ตรวจวันที่ 2026-11-17 ที่ `http://127.0.0.1:5000/` โดยกรอกฟอร์มจริง + กด **Calculate DC Bias** ทุกกรณี
+ค่าร่วมทุกกรณี: **VCC = 12 V, RC = 2.2 kΩ, β = 100, VBE = 0.70 V**
+เกณฑ์: |ΔIC| ≤ 0.01 mA, |ΔVCE| ≤ 0.02 V (เทียบค่าอ้างอิงที่ยังไม่ปัดเศษ)
+
+| Case | อินพุต (หน่วย) | ค่าคาดหมาย | ผลจริง | วิธีตรวจ | สถานะ | หลักฐานจากหน้าเว็บ |
+|---|---|---|---|---|---|---|
+| A1 | Divider · R1=100 kΩ, R2=22 kΩ, RE=1 kΩ | IC 1.2299 mA · VCE 8.0522 V | **IC 1.23 mA · VCE 8.05 V** | OpenCode Browser | PASS | `DC Bias Results — Voltage Divider Bias`; แถว `IC 1.23 mA`, `VCE 8.05 V` — ตรงกับผล Lab 02 เดิม |
+| A2 | Fixed · RB=1 MΩ (ไม่มีช่อง R1/R2/RE) | IC 1.1300 mA · VCE 9.5140 V | **IC 1.13 mA · VCE 9.51 V** | OpenCode Browser | PASS | `DC Bias Results — Fixed Bias`; แถว `IC 1.13 mA`, `VCE 9.51 V`; `Active region approximation OK` |
+| A3 | Emitter · RB=1 MΩ, RE=1 kΩ | IC 1.0263 mA · VCE 8.7054 V | **IC 1.03 mA · VCE 8.71 V** | OpenCode Browser | PASS | `DC Bias Results — Emitter Bias`; แถว `IC 1.03 mA`, `VCE 8.71 V` |
+| A4 | Emitter · เปลี่ยนเฉพาะ RE เป็น 2 kΩ | IC 0.9401 mA · VCE 8.0328 V (ต้อง **ลด** จาก A3) | **IC 0.94 mA · VCE 8.03 V** | OpenCode Browser | PASS | ก่อน `1.03 mA`/`8.71 V` → หลัง `0.94 mA`/`8.03 V`; ฟอร์มยืนยัน `re=2`, `re_unit=kohm`, โหมดยังเป็น `emitter` |
+| A5 | Fixed · RB=0 | error ระบุ RB, เว็บไม่ล่ม, ไม่แสดงผลรอบก่อน | **error `RB ต้องมากกว่า 0 Ω (RB must be > 0 Ω)`**; ไม่มีตารางผล; ไม่มี `0.94 mA` ค้าง | OpenCode Browser | PASS | `Input Errors (Fixed Bias) — ข้อผิดพลาดของข้อมูลนำเข้า`; ข้อความมาจาก **Flask** ไม่ใช่ HTML `required` |
+
+**เหตุผลเปลี่ยนเครื่องมือ:** ใบงานระบุ Playwright MCP แต่ไม่ได้ configure ใน session นี้ จึงใช้
+**OpenCode Browser** (`tools.browser.*` — Chromium ใน OpenCode Desktop) แทน ซึ่งเป็นวิธีสำรองที่ใบงานอนุญาต
+ทุกกรณีกรอกผ่านฟอร์มจริงใน browser + กดปุ่มจริง ไม่ใช้ curl หรืออ่าน source แทน
+
+**หลักฐานภาพหน้าจอ (กรณี A5):**
+
+![A5 — error RB ต้องมากกว่า 0 Ω จาก Flask](docs/validation-a5-error.jpeg)
+
+**A3 → A4:** เพิ่ม RE ทำให้ตัวหาร `RB+(β+1)·RE` เพิ่มจาก 1.101 MΩ → 1.202 MΩ
+IB ลด 10.2634 → 9.4010 µA → IC ลด 1.03 → 0.94 mA ตามที่ทำนายไว้ล่วงหน้า
+
+รายละเอียดเต็ม (รวมสมการอ้างอิงอิสระ): [`docs/validation.md`](docs/validation.md)
 
 ## ข้อจำกัดของแบบจำลอง (Model Limitations)
 
