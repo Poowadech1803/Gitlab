@@ -6,6 +6,7 @@ Forward-Active approximation: constant beta and constant VBE.
 Inputs are SI units: volts, ohms, amperes.
 """
 
+import math
 from dataclasses import dataclass, field
 
 
@@ -16,6 +17,29 @@ class BiasInput:
     vcc: float
     r1: float
     r2: float
+    rc: float
+    re: float
+    beta: float
+    vbe: float = 0.7
+
+
+@dataclass
+class FixedInput:
+    """Circuit parameters for fixed bias: RB from VCC to base, emitter grounded."""
+
+    vcc: float
+    rb: float
+    rc: float
+    beta: float
+    vbe: float = 0.7
+
+
+@dataclass
+class EmitterInput:
+    """Circuit parameters for single-supply emitter bias: RB, RC and RE."""
+
+    vcc: float
+    rb: float
     rc: float
     re: float
     beta: float
@@ -51,12 +75,29 @@ class BiasResult:
         return self.ie * 1000.0
 
 
-def _validate(data: dict) -> list:
-    """Validate raw form data. Returns a list of Thai/English error messages."""
+MODE_FIELDS = {
+    "divider": ("vcc", "r1", "r2", "rc", "re", "beta"),
+    "fixed": ("vcc", "rb", "rc", "beta"),
+    "emitter": ("vcc", "rb", "rc", "re", "beta"),
+}
+
+RESISTOR_FIELDS_BY_MODE = {
+    "divider": ("r1", "r2", "rc", "re"),
+    "fixed": ("rb", "rc"),
+    "emitter": ("rb", "rc", "re"),
+}
+
+_LABELS = {"vcc": "VCC", "r1": "R1", "r2": "R2", "rb": "RB", "rc": "RC",
+           "re": "RE", "beta": "beta"}
+
+
+def _validate(data: dict, mode: str = "divider") -> list:
+    """Validate the fields required by ``mode``. Returns error messages."""
     errors = []
-    required = {"vcc": "VCC", "r1": "R1", "r2": "R2", "rc": "RC",
-                "re": "RE", "beta": "beta"}
-    for key, label in required.items():
+    required = MODE_FIELDS[mode]
+    resistors = RESISTOR_FIELDS_BY_MODE[mode]
+    for key in required:
+        label = _LABELS[key]
         if key not in data or str(data[key]).strip() == "":
             errors.append(f"กรุณากรอกค่า {label} (missing {label})")
             continue
@@ -65,42 +106,47 @@ def _validate(data: dict) -> list:
         except (TypeError, ValueError):
             errors.append(f"{label} ต้องเป็นตัวเลข ({label} must be numeric)")
             continue
-        if key in ("r1", "r2", "rc", "re") and value <= 0:
+        if not math.isfinite(value):
+            errors.append(f"{label} ต้องเป็นจำนวนจำกัด ({label} must be finite)")
+            continue
+        if key in resistors and value <= 0:
             errors.append(f"{label} ต้องมากกว่า 0 Ω ({label} must be > 0 Ω)")
         if key == "vcc" and value <= 0:
             errors.append(f"VCC ต้องมากกว่า 0 V (VCC must be > 0 V)")
         if key == "beta" and value <= 0:
             errors.append(f"β ต้องมากกว่า 0 (beta must be > 0)")
-    # VBE optional but if given must be numeric (can be 0 for cutoff check)
+    # VBE optional but if given must be numeric and finite (can be 0)
     if "vbe" in data and str(data.get("vbe", "")).strip() != "":
         try:
-            float(data["vbe"])
+            vbe = float(data["vbe"])
+            if not math.isfinite(vbe):
+                raise ValueError("not finite")
         except (TypeError, ValueError):
             errors.append("VBE ต้องเป็นตัวเลข (VBE must be numeric)")
     return errors
 
 
-def parse_input(data: dict) -> BiasInput:
-    """Parse and validate raw form data into a BiasInput.
+def parse_input(data: dict, mode: str = "divider"):
+    """Parse and validate raw form data into the input dataclass for ``mode``.
 
-    Raises ValueError with the first error message if data is invalid.
+    Raises ValueError with all validation messages joined by "; ".
     """
-    errors = _validate(data)
+    if mode not in MODE_FIELDS:
+        raise ValueError(f"โหมดไม่รู้จัก (unknown mode: {mode}) — ใช้ divider, fixed หรือ emitter")
+    errors = _validate(data, mode)
     if errors:
         raise ValueError("; ".join(errors))
-    return BiasInput(
-        vcc=float(data["vcc"]),
-        r1=float(data["r1"]),
-        r2=float(data["r2"]),
-        rc=float(data["rc"]),
-        re=float(data["re"]),
-        beta=float(data["beta"]),
-        vbe=float(data.get("vbe") or 0.7),
-    )
+    values = {key: float(data[key]) for key in MODE_FIELDS[mode]}
+    values["vbe"] = float(data.get("vbe") or 0.7)
+    if mode == "fixed":
+        return FixedInput(**values)
+    if mode == "emitter":
+        return EmitterInput(**values)
+    return BiasInput(**values)
 
 
-def solve(bias: BiasInput) -> BiasResult:
-    """Solve the DC operating point under the forward-active approximation.
+def solve_divider(bias: BiasInput) -> BiasResult:
+    """Solve the voltage-divider DC operating point (forward-active).
 
     VTH = VCC * R2 / (R1 + R2)
     RTH = R1*R2 / (R1 + R2)
@@ -139,3 +185,55 @@ def solve(bias: BiasInput) -> BiasResult:
             "ไม่สะท้อนสภาวะจริง (IC จริงจะถูกจำกัดโดย RC)"
         )
     return result
+
+
+def _finish(result: BiasResult, vcc: float, rc: float, re: float,
+            ib: float, beta: float, vbe: float,
+            saturation_strict: bool = False) -> BiasResult:
+    """Complete the operating point from IB and apply model-limit warnings."""
+    if ib <= 0:
+        result.region = "cutoff"
+        result.vc = vcc
+        result.vce = vcc
+        result.warnings.append(
+            f"IB = {ib * 1e6:.3f} µA ≤ 0 → ทรานซิสเตอร์อยู่ใน Cutoff "
+            "ค่าจากสมการ Forward-Active ใช้ไม่ได้"
+        )
+        return result
+
+    result.ib = ib
+    result.ic = beta * ib
+    result.ie = (beta + 1) * ib
+    result.ve = result.ie * re
+    result.vb = result.ve + vbe
+    result.vc = vcc - result.ic * rc
+    result.vce = result.vc - result.ve
+
+    too_low = result.vce <= 0.2 if saturation_strict else result.vce < 0.2
+    if too_low:
+        result.region = "saturation"
+        result.warnings.append(
+            f"VCE = {result.vce:.3f} V ต่ำกว่า 0.2 V (ใกล้ VCE(sat)) "
+            "→ ทรานซิสเตอร์เข้าสู่ Saturation ผลจากสมการ Forward-Active "
+            "ไม่สะท้อนสภาวะจริง (IC จริงจะถูกจำกัดโดย RC)"
+        )
+    return result
+
+
+def solve_fixed(bias: FixedInput) -> BiasResult:
+    """Fixed bias: IB = (VCC − VBE) / RB, emitter at ground."""
+    ib = (bias.vcc - bias.vbe) / bias.rb
+    return _finish(BiasResult(), bias.vcc, bias.rc, 0.0, ib,
+                   bias.beta, bias.vbe, saturation_strict=True)
+
+
+def solve_emitter(bias: EmitterInput) -> BiasResult:
+    """Emitter bias: IB = (VCC − VBE) / [RB + (β+1)RE]."""
+    ib = (bias.vcc - bias.vbe) / (bias.rb + (bias.beta + 1) * bias.re)
+    return _finish(BiasResult(), bias.vcc, bias.rc, bias.re, ib,
+                   bias.beta, bias.vbe, saturation_strict=True)
+
+
+def solve(bias: BiasInput) -> BiasResult:
+    """Backwards-compatible entry point for the Lab 2 divider circuit."""
+    return solve_divider(bias)

@@ -92,5 +92,53 @@ class TestValidation(unittest.TestCase):
             parse_input({"vcc": "12", "r1": "100000", "r2": "22000", "rc": "2200"})
 
 
+class TestNewModes(unittest.TestCase):
+    def test_fixed_reference(self):
+        from dc_bias import FixedInput, solve_fixed
+        r = solve_fixed(FixedInput(vcc=12.0, rb=1e6, rc=2.2e3, beta=100, vbe=0.70))
+        self.assertAlmostEqual(r.ib, 11.3e-6, places=9)
+        self.assertAlmostEqual(r.ic_ma, 1.1300, places=4)
+        self.assertAlmostEqual(r.vb, 0.70, places=4)
+        self.assertAlmostEqual(r.ve, 0.0, places=4)
+        self.assertAlmostEqual(r.vc, 9.5140, places=4)
+        self.assertAlmostEqual(r.vce, 9.5140, places=4)
+
+    def test_emitter_reference_and_re_increase_lowers_ic(self):
+        from dc_bias import EmitterInput, solve_emitter
+        a = solve_emitter(EmitterInput(12.0, 1e6, 2.2e3, 1e3, 100, 0.70))
+        b = solve_emitter(EmitterInput(12.0, 1e6, 2.2e3, 2e3, 100, 0.70))
+        self.assertAlmostEqual(a.ic_ma, 1.0263, places=4)
+        self.assertAlmostEqual(a.vce, 8.7054, places=4)
+        self.assertAlmostEqual(b.ic_ma, 0.9401, places=4)
+        self.assertAlmostEqual(b.vce, 8.0328, places=4)
+        self.assertLess(b.ic, a.ic)
+
+    def test_mode_specific_validation(self):
+        from dc_bias import parse_input
+        fixed = {"vcc": "12", "rb": "1000000", "rc": "2200", "beta": "100", "vbe": "0.7"}
+        self.assertEqual(parse_input(fixed, "fixed").rb, 1e6)  # no R1/R2/RE needed
+        with self.assertRaises(ValueError) as e:
+            parse_input({**fixed, "rb": "0"}, "fixed")
+        self.assertIn("RB", str(e.exception))
+        with self.assertRaises(ValueError) as e:
+            parse_input({"vcc": "12", "rb": "1000000", "rc": "2200", "beta": "100"}, "emitter")
+        self.assertIn("RE", str(e.exception))
+        with self.assertRaises(ValueError) as e:
+            parse_input(fixed, "unknown")
+        self.assertIn("mode", str(e.exception).lower())
+
+    def test_non_finite_rejected(self):
+        from dc_bias import parse_input
+        for bad in ("nan", "inf", "-inf"):
+            with self.assertRaises(ValueError):
+                parse_input({"vcc": "12", "rb": bad, "rc": "2200", "beta": "100"}, "fixed")
+
+    def test_new_modes_saturation_warning(self):
+        from dc_bias import FixedInput, solve_fixed
+        r = solve_fixed(FixedInput(vcc=12.0, rb=1e3, rc=100e3, beta=100, vbe=0.70))
+        self.assertEqual(r.region, "saturation")
+        self.assertTrue(r.warnings)
+
+
 if __name__ == "__main__":
     unittest.main()
