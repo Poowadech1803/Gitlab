@@ -136,5 +136,53 @@ class TestModeRoutes(unittest.TestCase):
         self.assertIn('name="vcc"', html)
 
 
+class TestModeTemplate(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+
+    def test_form_shows_only_mode_fields(self):
+        fixed = self.client.post("/calculate", data={
+            "mode": "fixed", "action": "mode", "vcc": "12", "rb": "1",
+            "rc": "2.2", "beta": "100"}).get_data(as_text=True)
+        self.assertIn('name="rb"', fixed)
+        self.assertNotIn('name="r1"', fixed)
+        self.assertNotIn('name="r2"', fixed)
+
+        emitter = self.client.post("/calculate", data={
+            "mode": "emitter", "action": "mode", "vcc": "12", "rb": "1",
+            "rc": "2.2", "re": "1", "beta": "100"}).get_data(as_text=True)
+        self.assertIn('name="re"', emitter)
+        self.assertIn('name="rb"', emitter)
+        self.assertNotIn('name="r1"', emitter)
+
+        divider = self.client.post("/calculate", data={
+            "mode": "divider", "action": "mode", "vcc": "12",
+            "r1": "100", "r2": "22", "rc": "2.2", "re": "1",
+            "beta": "100"}).get_data(as_text=True)
+        self.assertIn('name="r1"', divider)
+        self.assertIn('name="r2"', divider)
+        self.assertNotIn('name="rb"', divider)
+
+    def test_result_and_error_name_the_mode(self):
+        html = self.client.post("/calculate", data={
+            "mode": "fixed", "vcc": "12", "rb": "1", "rb_unit": "mohm",
+            "rc": "2.2", "rc_unit": "kohm", "beta": "100"}).get_data(as_text=True)
+        self.assertIn("Fixed Bias", html)
+
+        bad = self.client.post("/calculate", data={
+            "mode": "emitter", "vcc": "12", "rb": "0", "rb_unit": "mohm",
+            "rc": "2.2", "rc_unit": "kohm", "re": "1", "re_unit": "kohm",
+            "beta": "100"}).get_data(as_text=True)
+        self.assertIn("Emitter Bias", bad)
+        self.assertNotIn("1.03 mA", bad)  # no stale result on invalid input
+
+    def test_mode_selector_survives_post(self):
+        html = self.client.post("/calculate", data={
+            "mode": "emitter", "action": "mode", "vcc": "12",
+            "rb": "1", "rc": "2.2", "re": "1", "beta": "100"}).get_data(as_text=True)
+        self.assertIn('name="mode"', html)
+        self.assertIn('value="emitter" selected', html)
+
+
 if __name__ == "__main__":
     unittest.main()
