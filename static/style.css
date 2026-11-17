@@ -1,4 +1,4 @@
-/* BJT DC Bias Web App — layout matched to the Lab 02 reference (3-column dashboard) */
+/* BJT DC Bias Web App — 3-column dashboard (Lab 03: three selectable circuits) */
 :root{
   --navy:#143c5a;--ink:#1f3b50;--muted:#5c7488;
   --teal:#11808a;--teal-dark:#0c6b74;
@@ -43,6 +43,13 @@ sub{font-size:.72em}
 .param-row input:focus{outline:2px solid var(--teal);border-color:var(--teal)}
 .param-row select{height:30px;padding:2px 4px;border:1px solid #c9d8e4;border-radius:5px;background:#fff;
   font:13px "Segoe UI",Tahoma,sans-serif;color:var(--ink)}
+.mode-row{grid-template-columns:minmax(0,1fr) auto;gap:7px}
+.mode-row label{grid-column:1/-1}
+.mode-select{max-width:100%;height:30px;border:1px solid var(--pill-line);border-radius:5px;
+  background:var(--pill);color:var(--navy);font-weight:600;padding:2px 6px}
+.mode-btn{height:30px;padding:0 10px;border:1px solid var(--pill-line);border-radius:5px;
+  background:var(--pill);color:var(--navy);font:600 12.5px "Segoe UI",Tahoma,sans-serif;cursor:pointer;white-space:nowrap}
+.mode-btn:hover{filter:brightness(.97)}
 .calc-btn{width:100%;margin-top:16px;display:flex;align-items:center;justify-content:center;gap:9px;
   background:linear-gradient(180deg,#14909b,#0d7781);color:#fff;border:none;border-radius:7px;
   height:46px;font:700 15px "Segoe UI",Tahoma,sans-serif;cursor:pointer;
