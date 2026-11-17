@@ -88,5 +88,53 @@ class TestWebRoutes(unittest.TestCase):
         self.assertIn("Saturation", html)
 
 
+class TestModeRoutes(unittest.TestCase):
+    def setUp(self):
+        self.client = app.test_client()
+        app.config["TESTING"] = True
+
+    def test_fixed_post(self):
+        rv = self.client.post("/calculate", data={
+            "mode": "fixed", "vcc": "12", "rb": "1", "rb_unit": "mohm",
+            "rc": "2.2", "rc_unit": "kohm", "beta": "100", "vbe": "0.70"})
+        html = rv.get_data(as_text=True)
+        self.assertIn("1.13 mA", html)
+        self.assertIn("9.51 V", html)
+
+    def test_emitter_post_with_re(self):
+        rv = self.client.post("/calculate", data={
+            "mode": "emitter", "vcc": "12", "rb": "1", "rb_unit": "mohm",
+            "rc": "2.2", "rc_unit": "kohm", "re": "1", "re_unit": "kohm",
+            "beta": "100", "vbe": "0.70"})
+        html = rv.get_data(as_text=True)
+        self.assertIn("1.03 mA", html)
+        self.assertIn("8.71 V", html)
+
+    def test_invalid_rb_zero_shows_error_not_stale_result(self):
+        rv = self.client.post("/calculate", data={
+            "mode": "fixed", "vcc": "12", "rb": "0", "rb_unit": "mohm",
+            "rc": "2.2", "rc_unit": "kohm", "beta": "100", "vbe": "0.70"})
+        html = rv.get_data(as_text=True)
+        self.assertIn("RB", html)
+        self.assertIn("ข้อผิดพลาด", html)
+        self.assertNotIn("1.13 mA", html)
+
+    def test_unknown_mode_rejected(self):
+        rv = self.client.post("/calculate", data={**reference_form(), "mode": "bogus"})
+        html = rv.get_data(as_text=True)
+        self.assertIn("โหมด", html)
+        self.assertNotIn("8.05 V", html)
+
+    def test_mode_switch_has_no_result(self):
+        rv = self.client.post("/calculate", data={
+            "mode": "fixed", "action": "mode", "vcc": "12", "rb": "1",
+            "rb_unit": "mohm", "rc": "2.2", "rc_unit": "kohm",
+            "beta": "100", "vbe": "0.70"})
+        html = rv.get_data(as_text=True)
+        self.assertNotIn("1.13 mA", html)
+        self.assertNotIn("Input Errors", html)  # switching mode is not a solve attempt
+        self.assertIn('name="vcc"', html)
+
+
 if __name__ == "__main__":
     unittest.main()
