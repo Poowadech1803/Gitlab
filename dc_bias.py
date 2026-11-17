@@ -74,6 +74,25 @@ class BiasResult:
     def ie_ma(self) -> float:
         return self.ie * 1000.0
 
+    def to_dict(self) -> dict:
+        """Return the operating point as a dict with the lab's agreed keys/units.
+
+        ``vb``/``ve``/``vc``/``vce`` are volts, ``ic_ma``/``ie_ma`` are mA,
+        ``ib_ua`` is µA. The same shape is used for all three modes so callers
+        (Flask/templates) never depend on which solver produced the result.
+        """
+        return {
+            "vb": self.vb,
+            "ve": self.ve,
+            "vc": self.vc,
+            "vce": self.vce,
+            "ib_ua": self.ib_ua,
+            "ic_ma": self.ic_ma,
+            "ie_ma": self.ie_ma,
+            "region": self.region,
+            "warnings": list(self.warnings),
+        }
+
 
 MODE_FIELDS = {
     "divider": ("vcc", "r1", "r2", "rc", "re", "beta"),

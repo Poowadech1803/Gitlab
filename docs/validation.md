@@ -47,11 +47,68 @@ IB = (VCC − VBE) / [RB + (β+1)·RE]
 ผลที่เห็นจริงบนหน้าเว็บ 1.03 mA → 0.94 mA ตรงทิศทางที่ทำนาย (Δ = −0.09 mA)
 และค่า VC เพิ่มขึ้นเล็กน้อยเพราะ IC ลดลง → แรงดันตกบน RC ลดลง (9.74 V → 9.93 V)
 
+## บทบาทของ MCP และเครื่องมือที่ใช้จริง
+
+**MCP (Model Context Protocol)** คือมาตรฐานที่ให้แอป AI รู้ว่ามีเครื่องมืออะไร เรียกใช้เครื่องมือนั้น
+และรับผลกลับมา ใน Lab นี้ **OpenCode** เป็นแอปที่มี MCP Client ส่วน **Playwright MCP** เป็น MCP Server
+ที่เปิดเครื่องมือควบคุมเบราว์เซอร์ให้เอเจนต์ใช้
+
+เส้นทางข้อมูลตามที่ใบงานอธิบาย:
+
+```
+OpenCode (MCP Client)
+   │  MCP · ส่งคำสั่ง เปิด URL / กรอก / คลิก / อ่านหน้าเว็บ
+   ▼
+Playwright MCP (MCP Server)  →  Browser  ←HTTP→  Flask + Python
+   ▲                                                  │
+   └────────── MCP · ส่ง snapshot กลับ ───────────────┘
+```
+
+- เบราว์เซอร์เป็นฝั่งที่ส่งคำขอ **HTTP** ไป Flask และแสดงผลลัพธ์
+- OpenCode คุยกับ MCP ผ่านคำสั่งเครื่องมือ **ไม่ใช่ HTTP** — สองเส้นทางนี้ทำหน้าที่ต่างกัน
+- `browser-acceptance-check` skill บอก **ขั้นตอน/หลักฐาน** ที่ต้องรายงาน แต่ไม่ได้เปิดเว็บเอง;
+  MCP เป็นตัวทำให้เรียกเครื่องมือได้; Flask ยังทำงานเหมือนเดิมและไม่ต้องลง Playwright ใน `requirements.txt`
+
+**เหตุผลที่เปลี่ยนเครื่องมือใน session นี้:** Playwright MCP ไม่ได้ configure ใน OpenCode ของเครื่องนี้
+จึงใช้ **OpenCode Browser** (`tools.browser.*` — Chromium ในตัว OpenCode Desktop) ซึ่งเป็น
+"Browser Tool ที่มีใน OpenCode Desktop" ตามที่ใบงานอนุญาตให้ใช้เป็นวิธีสำรอง
+
+**เกณฑ์การให้คะแนนเท่ากันทุกวิธี:** ใบงานระบุชัดว่าให้ใช้เกณฑ์ A1–A5 และ tolerance เดียวกัน
+โดยระบุวิธีจริงว่าเป็น `Playwright MCP`, `OpenCode Browser` หรือ `Manual` — ไม่มีการลดคะแนน
+เพราะใช้ OpenCode Browser แทน Playwright MCP ในครั้งนี้ ผลทุกกรณีในตารางข้างบนจึงเทียบกับ
+เกณฑ์เดียวกันกับที่ใช้กับ Playwright MCP ทุกประการ
+
+## การตรวจสมการกับโค้ดที่ AI สร้าง (Rubric ข้อ 1)
+
+AI เขียน `dc_bias.py` ตามสมการ Engineering Electronics แล้วนำกลับมาเทียบทีละสมการ:
+
+| สมการที่เรียน | ที่อยู่ในโค้ด | สิ่งที่ตรวจ |
+|---|---|---|
+| `IB = (VTH−VBE)/(RTH+(β+1)RE)` | `solve_divider()` | VTH/RTH ตรงมือ 2.163934 V / 18032.787 Ω |
+| `IB = (VCC−VBE)/RB` | `solve_fixed()` บรรทัด ~225 | RB=1 MΩ → 11.30 µA ตรงมือ |
+| `IB = (VCC−VBE)/[RB+(β+1)RE]` | `solve_emitter()` บรรทัด ~232 | 10.2634 → 9.4010 µA เมื่อ RE 1→2 kΩ |
+| `IC=β·IB, IE=(β+1)IB, VE=IE·RE, VC=VCC−IC·RC, VCE=VC−VE` | `_finish()` | ใช้ helper ร่วมกันทั้ง 2 โหมดใหม่ → คีย์/หน่วยเหมือนกัน |
+| หน่วย Ω/kΩ/MΩ → Ω | `app.py` `UNIT_FACTORS` + `RESISTOR_FIELDS_BY_MODE[mode]` | แปลงครั้งเดียว ก่อน `parse_input` |
+| เลือกฟังก์ชันตามโหมด | `app.py` `SOLVERS[mode](bias)` + `MODE_FIELDS` | ไม่มี silent fallback เมื่อ mode ไม่รู้จัก |
+
+`BiasResult.to_dict()` ส่งผลเป็น **dict** ที่มีคีย์คงที่ทุกโหมด:
+`vb, ve, vc, vce` (V), `ic_ma, ie_ma` (mA), `ib_ua` (µA), `region`, `warnings` —
+`templates/index.html` อ่านจาก dict นี้โดยตรง (ทดสอบใน `tests/test_dc_bias.py::TestResultDict`)
+
+## นักศึกษาทวนเองอย่างน้อย 1 กรณี (Rubric ข้อ 3)
+
+ทำซ้ำด้วยมือที่หน้า `http://127.0.0.1:5000/` 1 กรณี (แนะนำ A4 เพราะเห็นทิศทางชัด):
+เลือก **Emitter** → RB=1 เลือก MΩ → RC=2.2 kΩ → RE=**2** kΩ → β=100 → VBE=0.70
+→ กด **Calculate DC Bias** → ต้องเห็น **IC 0.94 mA · VCE 8.03 V**
+(ถ้าได้ 1.03 mA / 8.71 V แสดงว่า RE ยังเป็น 1 kΩ — ให้ไล่ ฟอร์ม → ชื่อฟิลด์ → แปลงหน่วย → ฟังก์ชัน → ผล)
+
+*ช่องบันทึกผลที่นักศึกษาทวนเอง: `RE=2 kΩ → IC ______ mA, VCE ______ V, ตรง/ไม่ตรง ______*`
+
 ## หมายเหตุการตรวจ
 
 - ทุกกรณีใช้การกรอกผ่านฟอร์มจริงในเบราว์เซอร์ + กดปุ่มคำนวณจริง ไม่ได้ใช้ curl หรืออ่าน source แทน
 - หลังเปลี่ยนโหมด กด **เปลี่ยนโหมด** แล้วอ่าน snapshot ใหม่ก่อนกรอก (ตามที่ใบงานแนะนำ)
 - กรณี A5 พิสูจน์ว่า Flask ตรวจอินพุตเอง: ข้อความ error ถูก render จาก `errors` ที่ `app.py` ส่งกลับ
   และ `result = None` ทำให้ตารางผลหายไป ไม่ใช่ผลเก่าจาก A4
-- จำนวน tests ที่ผ่าน: `python -m unittest discover -s tests -v` → **OK 29/29**
-  (including tests เดิมของ Lab 02 ทุกตัว)
+- จำนวน tests ที่ผ่านหลังเพิ่ม dict interface: `python -m unittest discover -s tests -v` → **OK 30/30**
+  (tests เดิม Lab 02 ทุกตัวยังอยู่ครบ + `TestResultDict`)

@@ -137,3 +137,30 @@ IB ลด 10.2634 → 9.4010 µA → IC ลด 1.03 → 0.94 mA ตามที�
   และค่าอ้างอิงอิสระในตารางข้างบน
 - จุดเลือกฟังก์ชันอยู่ที่ `app.py` → `SOLVERS[mode](bias)`; แปลงหน่วยอยู่ที่ลูป
   `RESISTOR_FIELDS_BY_MODE[mode]` ใน `calculate()`
+- สมการแต่ละอันถูกเทียบกับโค้ด AI แล้ว (ตารางเทียบสมการ + หน่วย + dict: [`docs/validation.md`](docs/validation.md))
+
+## ส่งงาน / Reproduce
+
+**GitHub:** https://github.com/Poowadech1803/Gitlab (branch `main`, ตรงกับ local แล้ว)
+
+Commit SHA ของงาน Lab 03 (base `b567473`):
+
+| SHA | สิ่งที่ทำ |
+|---|---|
+| `387dfeb` | `feat(dc_bias)`: solver 3 โหมด + validation |
+| `f6d67da` | `feat(web)`: dispatch ตาม mode |
+| `e0576ab` | `feat(ui)`: mode selector + conditional fields |
+| `7b13507` | `test(web)`: mode-aware template tests |
+| `e2b7141` | `docs`: validation + README เดิม |
+| `0044662` | `docs(readme)`: ตาราง A1–A5 + screenshot |
+| ← ตามด้วย commit ปัจจุบัน | `feat(result)`: `BiasResult.to_dict()` + docs เกณฑ์/MCP + SHA ใน README นี้ |
+
+ดูประวัติจริงได้ด้วย `git log --oneline b567473..HEAD` (SHA ของ commit ปัจจุบันหาได้จาก
+`git rev-parse --short HEAD` — ไม่เขียน SHA ของตัวเองลงในไฟล์เพื่อไม่ให้ self-referential)
+
+
+**บทบาท MCP / การตรวจผล:** อธิบายใน [`docs/validation.md`](docs/validation.md) — ใช้ OpenCode Browser
+แทน Playwright MCP (ไม่ได้ configure) แต่เกณฑ์ให้คะแนน A1–A5 **เท่ากันทุกวิธี** ตามใบงาน
+
+**ผลลัพธ์:** solver ส่งกลับ **dict** ผ่าน `BiasResult.to_dict()` คีย์/หน่วยคงที่ทุกโหมด
+(`vb/ve/vc/vce` V, `ic_ma/ie_ma` mA, `ib_ua` µA) — ทดสอบใน `TestResultDict`

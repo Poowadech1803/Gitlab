@@ -2,7 +2,7 @@
 
 import unittest
 
-from dc_bias import BiasInput, solve
+from dc_bias import BiasInput, EmitterInput, solve, solve_emitter
 
 
 def make_bias(**overrides):
@@ -10,6 +10,21 @@ def make_bias(**overrides):
     params = dict(vcc=12.0, r1=100e3, r2=22e3, rc=2.2e3, re=1e3, beta=100, vbe=0.70)
     params.update(overrides)
     return BiasInput(**params)
+
+
+class TestResultDict(unittest.TestCase):
+    """Lab 3 rubric: solvers return a dict with consistent keys and units."""
+
+    def test_result_dict_keys_and_units(self):
+        r = solve_emitter(EmitterInput(12.0, 1e6, 2.2e3, 1e3, 100, 0.70))
+        d = r.to_dict()
+        for key in ("vb", "ve", "vc", "vce", "ib_ua", "ic_ma", "ie_ma",
+                    "region", "warnings"):
+            self.assertIn(key, d)
+        self.assertAlmostEqual(d["ic_ma"], 1.0263, places=4)
+        self.assertAlmostEqual(d["vce"], 8.7054, places=4)
+        self.assertAlmostEqual(d["ib_ua"], 10.2634, places=3)
+        self.assertIsInstance(d, dict)
 
 
 class TestReferenceCircuit(unittest.TestCase):

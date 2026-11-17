@@ -79,7 +79,8 @@ def calculate():
             factor = UNIT_FACTORS.get(si.get(f"{key}_unit", "kohm"), 1e3)
             si[key] = str(round(value * factor, 9))
         bias = parse_input(si, mode)
-        result = SOLVERS[mode](bias)
+        # Solvers hand back a dict with fixed keys/units for every mode.
+        result = SOLVERS[mode](bias).to_dict()
     except ValueError as exc:
         errors = str(exc).split("; ")
         result = None
