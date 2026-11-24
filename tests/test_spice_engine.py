@@ -1,13 +1,17 @@
 """Unit tests for simulation form validation and ngspice discovery."""
 
 import os
+import struct
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from subprocess import CompletedProcess
 from unittest import mock
 
 from spice_engine import (
     SimInput, SpiceError, build_netlist, find_ngspice, parse_sim_form,
+    run_analysis,
 )
 
 
@@ -207,6 +211,235 @@ class TestBuildNetlist(unittest.TestCase):
         self.assertIn("R1 vcc b 100000", net)
         self.assertNotIn("1e2", net)
         self.assertNotIn(".tran", net)
+
+
+DC_SIM = parse_sim_form(VALID_FORM)
+AC_SIM = parse_sim_form({**VALID_FORM, "analysis": "ac"})
+TRAN_SIM = parse_sim_form({**VALID_FORM, "analysis": "tran"})
+
+FAKE_LOG_OP = (
+    "v(b) = 1.900000e+00\n"
+    "v(e) = 1.200000e+00\n"
+    "v(c) = 9.300000e+00\n"
+)
+
+FAKE_LOG_AC = (
+    "Index freq vdb(in) vdb(out) vp(in) vp(out)\n"
+    "0 1.000000e+01 2.000000e+01 2.000000e+01 0.000000e+00 -1.000000e+01\n"
+    "1 1.000000e+02 2.000000e+01 4.500000e+01 0.000000e+00 -2.000000e+01\n"
+    "2 1.000000e+03 2.000000e+01 5.000000e+01 0.000000e+00 -3.000000e+01\n"
+    "3 1.000000e+04 2.000000e+01 4.500000e+01 0.000000e+00 -2.000000e+01\n"
+)
+
+FAKE_LOG_AC_MISSING_LOW = (
+    "Index freq vdb(in) vdb(out) vp(in) vp(out)\n"
+    "0 1.000000e+01 2.000000e+01 4.850000e+01 0.000000e+00 -1.000000e+01\n"
+    "1 1.000000e+02 2.000000e+01 4.800000e+01 0.000000e+00 -2.000000e+01\n"
+    "2 1.000000e+03 2.000000e+01 5.000000e+01 0.000000e+00 -3.000000e+01\n"
+    "3 1.000000e+04 2.000000e+01 4.500000e+01 0.000000e+00 -2.000000e+01\n"
+)
+
+TRAN_VIN = [1.0, 0.0, -1.0, 0.0, 1.0]
+
+
+def _tran_log(vout):
+    """Build a tabular .print tran log with hand-chosen vin/vout samples."""
+    lines = ["Index time v(in) v(out)"]
+    for index, (vin, out) in enumerate(zip(TRAN_VIN, vout)):
+        lines.append(
+            f"{index} {index * 1e-4:.6e} {vin:.6e} {out:.6e}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+RAW_DC_ASCII = (
+    b"Title: CE DC\n"
+    b"Plotname: Operating Point\n"
+    b"Flags: real\n"
+    b"No. Variables: 4\n"
+    b"No. Points: 1\n"
+    b"Variables:\n"
+    b"\t0\tv(b)\tvoltage\n"
+    b"\t1\tv(e)\tvoltage\n"
+    b"\t2\tv(c)\tvoltage\n"
+    b"\t3\ti(rc)\tdevice_current\n"
+    b"Values:\n"
+    b"\t0\t1.900000e+00, 1.200000e+00, 9.300000e+00, -1.500000e-03\n"
+)
+
+RAW_DC_BINARY = (
+    b"Title: CE DC\n"
+    b"Plotname: Operating Point\n"
+    b"Flags: real\n"
+    b"No. Variables: 4\n"
+    b"No. Points: 1\n"
+    b"Variables:\n"
+    b"\t0\tv(b)\tvoltage\n"
+    b"\t1\tv(e)\tvoltage\n"
+    b"\t2\tv(c)\tvoltage\n"
+    b"\t3\ti(rc)\tdevice_current\n"
+    b"Binary:\n"
+    + b"\x00" + struct.pack("<4d", 1.9, 1.2, 9.3, -1.5e-3)
+)
+
+
+def _fake_run(*, stdout="", stderr="", returncode=0, log_text=None, raw_bytes=None):
+    """Stand in for the ngspice process, optionally writing its -o/-r files."""
+    def fake(cmd, **kwargs):
+        for flag, payload in (("-o", log_text), ("-r", raw_bytes)):
+            if payload is None:
+                continue
+            path = Path(cmd[cmd.index(flag) + 1])
+            if isinstance(payload, bytes):
+                path.write_bytes(payload)
+            else:
+                path.write_text(payload, encoding="utf-8")
+        return CompletedProcess(cmd, returncode, stdout=stdout, stderr=stderr)
+
+    return fake
+
+
+class TestRunAnalysis(unittest.TestCase):
+    """A7-A9: runner output, real-log parsing and all failure paths."""
+
+    def test_run_analysis_op_parses_fake_log(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        return_value=CompletedProcess([], 0, stdout=FAKE_LOG_OP)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(out["analysis"], "dc")
+        self.assertEqual(out["engine"], "ngspice")
+        self.assertEqual(out["version"], "47-1 (MSYS2 package, upstream ngspice 47)")
+        self.assertEqual(out["model"], "Q1_NPN (local documented 2N3904-style model)")
+        self.assertAlmostEqual(out["data"]["vb"], 1.9)
+        self.assertAlmostEqual(out["data"]["ve"], 1.2)
+        self.assertAlmostEqual(out["data"]["vc"], 9.3)
+        self.assertAlmostEqual(out["data"]["vce"], 8.1)
+        self.assertAlmostEqual(out["data"]["ic_ma"], 1.227272727, places=5)
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("RC", out["warnings"][0])
+        self.assertEqual(out["summary"], {})
+        self.assertIn("v(b) = 1.900000e+00", out["log_excerpt"])
+
+    def test_run_analysis_prefers_i_rc_when_present(self):
+        log = FAKE_LOG_OP + "i(rc) = -1.500000e-03\ni(vcc) = -1.600000e-03\n"
+        with mock.patch("spice_engine.subprocess.run",
+                        return_value=CompletedProcess([], 0, stdout=log)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertAlmostEqual(out["data"]["ic_ma"], 1.5)
+        self.assertEqual(out["warnings"], [])
+
+    def test_run_analysis_falls_back_to_i_vcc(self):
+        log = FAKE_LOG_OP + "i(vcc) = -2.500000e-03\n"
+        with mock.patch("spice_engine.subprocess.run",
+                        return_value=CompletedProcess([], 0, stdout=log)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertAlmostEqual(out["data"]["ic_ma"], 2.5)
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("i(vcc)", out["warnings"][0])
+
+    def test_run_analysis_raises_on_nonzero(self):
+        failed = CompletedProcess([], 1, stdout=FAKE_LOG_OP, stderr="simulation aborted")
+        with mock.patch("spice_engine.subprocess.run", return_value=failed):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertIn("simulation aborted", str(cm.exception))
+        self.assertIn("v(b) = 1.900000e+00", str(cm.exception))
+
+    def test_empty_log_no_stale_result(self):
+        good = CompletedProcess([], 0, stdout=FAKE_LOG_OP)
+        empty = CompletedProcess([], 0, stdout="")
+        with mock.patch("spice_engine.subprocess.run", return_value=good):
+            first = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertEqual(first["status"], "success")
+        with mock.patch("spice_engine.subprocess.run", return_value=empty):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertIn("dc", str(cm.exception))
+
+    def test_missing_exe(self):
+        with tempfile.TemporaryDirectory() as root:
+            missing = str(Path(root) / "missing" / "ngspice.exe")
+            with mock.patch("spice_engine.subprocess.run",
+                            side_effect=AssertionError("should not start a process")):
+                with self.assertRaises(SpiceError) as cm:
+                    run_analysis(DC_SIM, exe=missing)
+            self.assertIn(missing, str(cm.exception))
+
+    def test_timeout_raises(self):
+        timeout = subprocess.TimeoutExpired("ngspice", 0.25, output=FAKE_LOG_OP)
+        with mock.patch("spice_engine.subprocess.run", side_effect=timeout):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(DC_SIM, exe="fake-ngspice", timeout=0.25)
+        self.assertIn("timed out", str(cm.exception))
+        self.assertIn("v(b) = 1.900000e+00", str(cm.exception))
+
+    def test_ac_log_parses_rows(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(log_text=FAKE_LOG_AC)):
+            out = run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(len(out["data"]), 4)
+        self.assertAlmostEqual(out["data"][0]["freq_hz"], 10.0)
+        self.assertAlmostEqual(out["data"][2]["gain_db"], 30.0)
+        self.assertAlmostEqual(out["data"][2]["phase_deg"], -30.0)
+        self.assertAlmostEqual(out["summary"]["midband_gain_db"], 30.0)
+        self.assertAlmostEqual(out["summary"]["f_low_hz"], 100.0)
+        self.assertAlmostEqual(out["summary"]["f_high_hz"], 10000.0)
+        self.assertEqual(out["warnings"], [])
+
+    def test_ac_missing_cutoff_says_not_determined(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(log_text=FAKE_LOG_AC_MISSING_LOW)):
+            out = run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertIsNone(out["summary"]["f_low_hz"])
+        self.assertAlmostEqual(out["summary"]["f_high_hz"], 10000.0)
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("not determined in sweep range", out["warnings"][0])
+
+    def test_tran_log_parses_rows(self):
+        log = _tran_log([-2.0, 0.0, 2.0, 0.0, -2.0])
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(log_text=log)):
+            out = run_analysis(TRAN_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(len(out["data"]), 5)
+        self.assertAlmostEqual(out["data"][0]["time_s"], 0.0)
+        self.assertAlmostEqual(out["data"][0]["vin_v"], 1.0)
+        self.assertAlmostEqual(out["data"][0]["vout_v"], -2.0)
+        self.assertAlmostEqual(out["data"][4]["time_s"], 4e-4)
+        self.assertAlmostEqual(out["data"][4]["vout_v"], -2.0)
+        self.assertEqual(out["summary"]["phase_relation"], "inverted")
+
+    def test_tran_summary_uses_correlation_for_phase_relation(self):
+        cases = (
+            ([2.0, 0.0, -2.0, 0.0, 2.0], "in-phase"),
+            ([0.0, 1.0, 0.0, -1.0, 0.0], "unclear"),
+        )
+        for vout, expected in cases:
+            with self.subTest(expected=expected):
+                with mock.patch("spice_engine.subprocess.run",
+                                side_effect=_fake_run(log_text=_tran_log(vout))):
+                    out = run_analysis(TRAN_SIM, exe="fake-ngspice")
+                self.assertEqual(out["summary"]["phase_relation"], expected)
+
+    def test_run_analysis_falls_back_to_ascii_raw(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_DC_ASCII)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertAlmostEqual(out["data"]["vb"], 1.9)
+        self.assertAlmostEqual(out["data"]["vc"], 9.3)
+        self.assertAlmostEqual(out["data"]["ic_ma"], 1.5)
+
+    def test_run_analysis_falls_back_to_binary_raw(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_DC_BINARY)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertAlmostEqual(out["data"]["ve"], 1.2)
+        self.assertAlmostEqual(out["data"]["vce"], 8.1)
+        self.assertAlmostEqual(out["data"]["ic_ma"], 1.5)
 
 
 if __name__ == "__main__":
