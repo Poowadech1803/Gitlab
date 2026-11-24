@@ -124,6 +124,12 @@ ledger verbatim: no result was upgraded, invented or softened. Engine shown in r
 `spice/q1_npn.model` (local documented Gummel-Poon-style 2N3904 model, **not** the
 instructor's Starter Kit model). The CE circuit has **no bypass capacitor**.
 
+**Tool availability, recorded per the handout:** **Playwright MCP — NOT RUN** (not configured
+in this OpenCode session); the handout's fallback rule was used — OpenCode Browser
+(`tools.browser.*`) with the evidence below, never labelled as Playwright MCP results.
+**Impeccable skill — NOT RUN** (not installed in this session); UI critique and polish were
+done by a task-scoped code review plus manual desktop/mobile inspection instead.
+
 | Case | Method / Input | Expected | Observed | Evidence | Status |
 |---|---|---|---|---|---|
 | B1 | `GET /`, then click **Calculate DC Bias** (`POST /calculate`) with Lab 03 defaults | Lab 03 and Lab 04 both render; DC result matches Lab 03 reference; no `#sim-form` | Lab 03 + Lab 04 rendered; **VB 1.94 V / VE 1.24 V / VC 9.29 V / VCE 8.05 V / IC 1.23 mA**; no `#sim-form` | page snapshot for GET and POST | PASS |

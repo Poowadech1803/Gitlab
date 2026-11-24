@@ -187,8 +187,10 @@ are untouched. Use `.venv\Scripts\python.exe` for every Python command.
   without a stale analytical table.
 - B1–B8 browser acceptance used **OpenCode Browser** (`tools.browser.*`, in-app Chromium),
   the same fallback used for A1–A5 because Playwright MCP is not configured here.
-  Full observed results: [`docs/validation.md`](docs/validation.md) →
-  `Lab 04 — Browser Validation (B1–B8)`.
+  **Playwright MCP = NOT RUN** and **Impeccable skill = NOT RUN** (neither is available in
+  this session) are recorded explicitly in [`docs/validation.md`](docs/validation.md) →
+  `Lab 04 — Browser Validation (B1–B8)`; neither fallback is claimed as a Playwright or
+  Impeccable result. Full observed results are in that same section.
 
 ### Project structure additions (on top of Lab 03)
 
