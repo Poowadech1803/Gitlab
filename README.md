@@ -307,7 +307,7 @@ Full ledger with tool availability and caveats: [`docs/validation.md`](docs/vali
 ### UI polish record (no Impeccable run)
 
 - **Impeccable skill — NOT RUN** in this session. It was not available/configured, so no Impeccable adjustment is claimed.
-- The actual UI polish is commit `e578b43` (`feat(ui): polish CE simulator form, results, and responsive layout`), which changed `templates/index.html`, `static/style.css` and `static/app.js`: two-column `.sim-layout`, labelled axes/units in the inline SVG, distinct SPICE vs Analytical tables, and a client-side “Running…” state.
+- The actual UI polish is commit `e578b43` (`feat(ui): polish CE simulator form, results, and responsive layout`), which changed `templates/index.html`, `static/style.css` and `static/app.js`: two-column `.sim-layout`, distinct SPICE vs Analytical tables, and a client-side “Running…” state. The labelled axes/units in the inline SVG come from `plots.py` (commit `148bf33`), not from this UI commit.
 - Method: task-scoped code review plus manual desktop/mobile inspection in OpenCode Browser. No fabricated before/after screenshot pair was created; the committed screenshots below are the real evidence.
 - Playwright MCP is also **NOT RUN**; the browser evidence came from OpenCode Browser (`tools.browser.*`), which the handout allows as fallback.
 
