@@ -1,5 +1,6 @@
 """Unit tests for simulation form validation and ngspice discovery."""
 
+import math
 import os
 import struct
 import subprocess
@@ -217,6 +218,16 @@ DC_SIM = parse_sim_form(VALID_FORM)
 AC_SIM = parse_sim_form({**VALID_FORM, "analysis": "ac"})
 TRAN_SIM = parse_sim_form({**VALID_FORM, "analysis": "tran"})
 
+
+def _ngspice_available() -> bool:
+    """Skip-safe availability probe: find_ngspice() itself can raise."""
+    try:
+        find_ngspice()
+    except SpiceError:
+        return False
+    return True
+
+
 FAKE_LOG_OP = (
     "v(b) = 1.900000e+00\n"
     "v(e) = 1.200000e+00\n"
@@ -282,6 +293,42 @@ RAW_DC_BINARY = (
     + b"\x00" + struct.pack("<4d", 1.9, 1.2, 9.3, -1.5e-3)
 )
 
+# Captured banner shape from a real -r run: no .print table is emitted, but
+# the raw-file path contains digits that must not become transient data rows.
+REAL_TRAN_LOG_BANNER_ONLY = (
+    "Note: No compatibility mode selected!\n"
+    "Circuit: * ce amplifier - local documented q1_npn model\n"
+    'binary raw file "C:\\Users\\B6807092\\AppData\\Local\\Temp\\tmp6c9q2v8l\\ngspice.raw"\n'
+    "No. of Data Rows : 2008\n"
+)
+
+# Captured from ngspice 47-1: real raw files have no pad byte after "Binary:"
+# and expose voltage-source branch currents, not i(rc).
+RAW_DC_REAL_NO_PAD = (
+    b"Title: * ce amplifier - local documented q1_npn model\n"
+    b"Date: Tue Nov 24 17:53:04  2026\n"
+    b"Command: ngspice-47, Build Mon Sep  7 15:41:53 UTC 2026\n"
+    b"Plotname: Operating Point\n"
+    b"Flags: real\n"
+    b"No. Variables: 8\n"
+    b"No. Points: 1       \n"
+    b"Variables:\n"
+    b"\t0\tv(vcc)\tvoltage\n"
+    b"\t1\tv(in)\tvoltage\n"
+    b"\t2\tv(b)\tvoltage\n"
+    b"\t3\tv(c)\tvoltage\n"
+    b"\t4\tv(e)\tvoltage\n"
+    b"\t5\tv(out)\tvoltage\n"
+    b"\t6\ti(vin)\tcurrent\n"
+    b"\t7\ti(vcc)\tcurrent\n"
+    b"Binary:\n"
+    + struct.pack(
+        "<8d",
+        12.0, 0.0, 2.0036744962966377, 9.087216255157696,
+        1.3328797437738196, 0.0, 0.0, -0.0014239558663289907,
+    )
+)
+
 RAW_TRAN_MULTIPOINT_ASCII = (
     b"Title: CE TRAN\n"
     b"Plotname: Transient Analysis\n"
@@ -331,6 +378,26 @@ RAW_AC_NO_FREQ_ASCII = (
     b"Values:\n"
     b"\t0\t2.000000e+01, 4.000000e+01, 0.000000e+00, -2.000000e+01\n"
     b"\t1\t2.000000e+01, 5.000000e+01, 0.000000e+00, -3.000000e+01\n"
+)
+
+# Real AC binary raw files carry uninitialised imaginary parts in the
+# frequency column; only the real part is meaningful (observed 47-1 output).
+RAW_AC_REAL_COMPLEX_GARBAGE_FREQ_IMAG = (
+    b"Title: CE AC\n"
+    b"Plotname: AC Analysis\n"
+    b"Flags: complex\n"
+    b"No. Variables: 3\n"
+    b"No. Points: 2\n"
+    b"Variables:\n"
+    b"\t0\tfrequency\tfrequency\tgrid=3\n"
+    b"\t1\tv(in)\tvoltage\n"
+    b"\t2\tv(out)\tvoltage\n"
+    b"Binary:\n"
+    + struct.pack(
+        "<12d",
+        1.0, 2.5640290219155525e262, 0.01, 0.0, 0.0076352, 0.0,
+        10.0, 9.53378641872868e172, 0.01, 0.0, 0.0173492, 0.0,
+    )
 )
 
 RAW_AC_COMPLEX_NO_VOUT_BINARY = (
@@ -595,6 +662,95 @@ class TestRunAnalysis(unittest.TestCase):
                 out = run_analysis(DC_SIM, exe=relative_exe)
         self.assertEqual(out["status"], "success")
         self.assertAlmostEqual(out["data"]["vce"], 8.1)
+
+
+class TestRealNgspice(unittest.TestCase):
+    """A10-A12: real ngspice output, skipped when no simulator is installed."""
+
+    def test_real_binary_raw_without_pad_byte_parses(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_DC_REAL_NO_PAD)):
+            out = run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertAlmostEqual(out["data"]["vb"], 2.0036745, places=5)
+        self.assertAlmostEqual(out["data"]["ve"], 1.3328797, places=5)
+        self.assertAlmostEqual(out["data"]["vc"], 9.0872163, places=5)
+        self.assertAlmostEqual(out["data"]["vce"], 7.7543365, places=5)
+        self.assertAlmostEqual(out["data"]["ic_ma"], 1.4239559, places=5)
+
+    def test_real_complex_raw_ignores_garbage_frequency_imaginary_part(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(
+                            raw_bytes=RAW_AC_REAL_COMPLEX_GARBAGE_FREQ_IMAG)):
+            out = run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(len(out["data"]), 2)
+        self.assertAlmostEqual(out["data"][0]["freq_hz"], 1.0)
+        self.assertAlmostEqual(out["data"][1]["freq_hz"], 10.0)
+        self.assertAlmostEqual(out["data"][1]["gain_db"], 4.8, places=1)
+
+    def test_real_log_banner_numbers_are_not_transient_rows(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(log_text=REAL_TRAN_LOG_BANNER_ONLY)):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(TRAN_SIM, exe="fake-ngspice")
+        self.assertIn("no parseable tran output", str(cm.exception))
+
+    @unittest.skipUnless(_ngspice_available(), "ngspice not installed")
+    def test_real_ngspice_dc_op_returns_physical_values(self):
+        out = run_analysis(DC_SIM)
+        self.assertEqual(out["status"], "success")
+        data = out["data"]
+        self.assertGreater(data["vb"], 0.5)
+        self.assertGreater(data["ve"], 0.0)
+        self.assertGreater(data["vc"], 0.0)
+        self.assertLess(data["vc"], DC_SIM.vcc)
+        self.assertGreater(data["vce"], 0.5)
+        self.assertAlmostEqual(data["vce"], data["vc"] - data["ve"], places=9)
+
+    @unittest.skipUnless(_ngspice_available(), "ngspice not installed")
+    def test_real_ngspice_dc_collector_current_uses_negative_supply_branch(self):
+        out = run_analysis(DC_SIM)
+        self.assertEqual(out["status"], "success")
+        ic_ma = out["data"]["ic_ma"]
+        self.assertGreater(ic_ma, 0.1)
+        self.assertLess(ic_ma, 5.0)
+        self.assertIn("i(vcc)", " ".join(out["warnings"]))
+
+    @unittest.skipUnless(_ngspice_available(), "ngspice not installed")
+    def test_real_ngspice_ac_sweep_has_distinct_frequency_points(self):
+        out = run_analysis(AC_SIM)
+        self.assertEqual(out["status"], "success")
+        points = out["data"]
+        self.assertGreater(len(points), 20)
+        freqs = [point["freq_hz"] for point in points]
+        self.assertEqual(len(set(freqs)), len(freqs))
+        self.assertTrue(all(left < right for left, right in zip(freqs, freqs[1:])))
+        self.assertAlmostEqual(freqs[0], 1.0, places=4)
+        self.assertAlmostEqual(freqs[-1], 1e7, delta=1e5)
+        self.assertTrue(all(
+            math.isfinite(point["gain_db"]) and math.isfinite(point["phase_deg"])
+            for point in points
+        ))
+        # A 10 mV drive produces a ~1.75 V/V midband output in this circuit.
+        self.assertGreater(out["summary"]["midband_gain_db"], 1.0)
+        self.assertLess(out["summary"]["midband_gain_db"], 20.0)
+
+    @unittest.skipUnless(_ngspice_available(), "ngspice not installed")
+    def test_real_ngspice_transient_has_multiple_time_points(self):
+        out = run_analysis(TRAN_SIM)
+        self.assertEqual(out["status"], "success")
+        points = out["data"]
+        self.assertGreater(len(points), 100)
+        times = [point["time_s"] for point in points]
+        self.assertAlmostEqual(times[0], 0.0)
+        self.assertTrue(all(left < right for left, right in zip(times, times[1:])))
+        self.assertGreater(times[-1], 0.0)
+        self.assertTrue(all(
+            math.isfinite(point["vin_v"]) and math.isfinite(point["vout_v"])
+            for point in points
+        ))
+        self.assertEqual(out["summary"]["phase_relation"], "inverted")
 
 
 if __name__ == "__main__":

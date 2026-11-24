@@ -214,12 +214,19 @@ def _parse_named_values(text: str) -> dict[str, float]:
 
 
 def _parse_numeric_rows(text: str, width: int) -> list[list[float]]:
-    """Collect tabular rows with at least ``width`` leading numeric columns."""
+    """Collect tabular rows with at least ``width`` leading numeric columns.
+
+    Real ngspice banners embed numbers in text (paths, dates, counters); only
+    lines that begin with a numeric column are print-table rows.
+    """
+    row_re = re.compile(
+        rf"^\s*{_NUMBER}(?:\s+{_NUMBER}){{{width - 1}}}(?=\s|$)"
+    )
     rows: list[list[float]] = []
     for line in text.splitlines():
-        tokens = _NUM_RE.findall(line)
-        if len(tokens) < width:
+        if row_re.match(line) is None:
             continue
+        tokens = _NUM_RE.findall(line)
         row = [float(token) for token in tokens[:width]]
         if all(math.isfinite(value) for value in row):
             rows.append(row)
@@ -377,9 +384,11 @@ def _raw_columns(blob: bytes) -> dict[str, list[float | complex]]:
     values: list[float | complex] = []
     if "Binary:" in header:
         payload = blob.split(b"Binary:", 1)[1].lstrip(b"\r\n")
-        if payload[:1] == b"\x00":  # ngspice pad byte before the doubles
-            payload = payload[1:]
         count = nvar * npoints * width
+        # ngspice 47 writes the doubles directly; older builds used one 0x00
+        # pad byte. Strip it only when it is actually present.
+        if len(payload) == count * 8 + 1 and payload[:1] == b"\x00":
+            payload = payload[1:]
         if len(payload) < count * 8:
             raise ValueError("truncated binary raw data")
         doubles = struct.unpack(f"<{count}d", payload[:count * 8])
@@ -425,16 +434,18 @@ def _raw_columns(blob: bytes) -> dict[str, list[float | complex]]:
     }
 
 
-def _real_column(values: list[float | complex], label: str) -> list[float]:
-    """Return a raw column as real numbers, rejecting imaginary components."""
-    result: list[float] = []
-    for value in values:
-        if isinstance(value, complex):
-            if abs(value.imag) > 1e-12:
-                raise ValueError(f"raw {label} must be real")
-            result.append(value.real)
-        else:
-            result.append(float(value))
+def _frequency_column(values: list[float | complex], label: str) -> list[float]:
+    """Return raw frequency values as real numbers.
+
+    Real ngspice complex raw files leave the frequency imaginary slot
+    uninitialised, so only the real part is meaningful.
+    """
+    result: list[float] = [
+        float(value.real) if isinstance(value, complex) else float(value)
+        for value in values
+    ]
+    if not all(math.isfinite(value) for value in result):
+        raise ValueError(f"non-finite raw {label}")
     return result
 
 
@@ -490,7 +501,7 @@ def _parse_raw(sim: SimInput, columns: Mapping[str, list[float | complex]],
         )
         if frequency_key is None:
             raise ValueError("raw AC file lacks frequency column")
-        freqs = _real_column(columns[frequency_key], "frequency")
+        freqs = _frequency_column(columns[frequency_key], "frequency")
         complex_voltages = all(
             name in columns and columns[name]
             and all(isinstance(value, complex) for value in columns[name])
