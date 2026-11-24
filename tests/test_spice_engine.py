@@ -282,6 +282,70 @@ RAW_DC_BINARY = (
     + b"\x00" + struct.pack("<4d", 1.9, 1.2, 9.3, -1.5e-3)
 )
 
+RAW_TRAN_MULTIPOINT_ASCII = (
+    b"Title: CE TRAN\n"
+    b"Plotname: Transient Analysis\n"
+    b"Flags: real\n"
+    b"No. Variables: 4\n"
+    b"No. Points: 3\n"
+    b"Variables:\n"
+    b"\t0\ttime\ttime\n"
+    b"\t1\tv(in)\tvoltage\n"
+    b"\t2\tv(out)\tvoltage\n"
+    b"\t3\ti(vcc)\tdevice_current\n"
+    b"Values:\n"
+    b"\t0\t0.000000e+00, 1.000000e+00, -2.000000e+00, -1.000000e-03\n"
+    b"\t1\t1.000000e-04, 0.000000e+00, 0.000000e+00, -2.000000e-03\n"
+    b"\t2\t2.000000e-04, -1.000000e+00, 2.000000e+00, -3.000000e-03\n"
+)
+
+RAW_AC_COMPLEX_BINARY = (
+    b"Title: CE AC\n"
+    b"Plotname: AC Analysis\n"
+    b"Flags: complex\n"
+    b"No. Variables: 3\n"
+    b"No. Points: 2\n"
+    b"Variables:\n"
+    b"\t0\tfrequency\tfrequency\n"
+    b"\t1\tv(in)\tvoltage\n"
+    b"\t2\tv(out)\tvoltage\n"
+    b"Binary:\n"
+    + b"\x00" + struct.pack(
+        "<12d",
+        100.0, 0.0, 1.0, 0.0, 2.0, 0.0,
+        1000.0, 0.0, 1.0, 0.0, 0.0, -4.0,
+    )
+)
+
+RAW_AC_NO_FREQ_ASCII = (
+    b"Title: CE AC\n"
+    b"Plotname: AC Analysis\n"
+    b"Flags: real\n"
+    b"No. Variables: 4\n"
+    b"No. Points: 2\n"
+    b"Variables:\n"
+    b"\t0\tvdb(in)\tvoltage\n"
+    b"\t1\tvdb(out)\tvoltage\n"
+    b"\t2\tvp(in)\tvoltage\n"
+    b"\t3\tvp(out)\tvoltage\n"
+    b"Values:\n"
+    b"\t0\t2.000000e+01, 4.000000e+01, 0.000000e+00, -2.000000e+01\n"
+    b"\t1\t2.000000e+01, 5.000000e+01, 0.000000e+00, -3.000000e+01\n"
+)
+
+RAW_AC_COMPLEX_NO_VOUT_BINARY = (
+    b"Title: CE AC\n"
+    b"Plotname: AC Analysis\n"
+    b"Flags: complex\n"
+    b"No. Variables: 2\n"
+    b"No. Points: 1\n"
+    b"Variables:\n"
+    b"\t0\tfrequency\tfrequency\n"
+    b"\t1\tv(in)\tvoltage\n"
+    b"Binary:\n"
+    + b"\x00" + struct.pack("<4d", 1000.0, 0.0, 1.0, 0.0)
+)
+
 
 def _fake_run(*, stdout="", stderr="", returncode=0, log_text=None, raw_bytes=None):
     """Stand in for the ngspice process, optionally writing its -o/-r files."""
@@ -440,6 +504,97 @@ class TestRunAnalysis(unittest.TestCase):
         self.assertAlmostEqual(out["data"]["ve"], 1.2)
         self.assertAlmostEqual(out["data"]["vce"], 8.1)
         self.assertAlmostEqual(out["data"]["ic_ma"], 1.5)
+
+
+    def test_multipoint_ascii_raw_maps_columns_per_point(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_TRAN_MULTIPOINT_ASCII)):
+            out = run_analysis(TRAN_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(len(out["data"]), 3)
+        self.assertAlmostEqual(out["data"][0]["time_s"], 0.0)
+        self.assertAlmostEqual(out["data"][0]["vin_v"], 1.0)
+        self.assertAlmostEqual(out["data"][0]["vout_v"], -2.0)
+        self.assertAlmostEqual(out["data"][1]["time_s"], 1e-4)
+        self.assertAlmostEqual(out["data"][1]["vin_v"], 0.0)
+        self.assertAlmostEqual(out["data"][2]["time_s"], 2e-4)
+        self.assertAlmostEqual(out["data"][2]["vin_v"], -1.0)
+        self.assertAlmostEqual(out["data"][2]["vout_v"], 2.0)
+        self.assertEqual(out["summary"]["phase_relation"], "inverted")
+
+    def test_ac_raw_without_frequency_does_not_invent_frequencies(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_AC_NO_FREQ_ASCII)):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertIn("frequency", str(cm.exception))
+        self.assertNotIn("index", str(cm.exception).lower())
+
+    def test_complex_ac_raw_derives_gain_and_phase(self):
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=RAW_AC_COMPLEX_BINARY)):
+            out = run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertEqual(out["status"], "success")
+        self.assertEqual(len(out["data"]), 2)
+        self.assertAlmostEqual(out["data"][0]["freq_hz"], 100.0)
+        self.assertAlmostEqual(out["data"][0]["gain_db"], 6.0206, places=3)
+        self.assertAlmostEqual(out["data"][0]["phase_deg"], 0.0)
+        self.assertAlmostEqual(out["data"][1]["freq_hz"], 1000.0)
+        self.assertAlmostEqual(out["data"][1]["gain_db"], 12.0412, places=3)
+        self.assertAlmostEqual(out["data"][1]["phase_deg"], -90.0)
+        self.assertAlmostEqual(out["summary"]["midband_gain_db"], 12.0412, places=3)
+        self.assertAlmostEqual(out["summary"]["f_low_hz"], 100.0)
+        self.assertIsNone(out["summary"]["f_high_hz"])
+
+    def test_complex_ac_raw_without_vout_fails(self):
+        raw = RAW_AC_COMPLEX_NO_VOUT_BINARY
+        with mock.patch("spice_engine.subprocess.run",
+                        side_effect=_fake_run(raw_bytes=raw)):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(AC_SIM, exe="fake-ngspice")
+        self.assertIn("v(out)", str(cm.exception))
+
+    def test_process_launch_oserror_becomes_spice_error(self):
+        failure = FileNotFoundError("launch failed: missing dll")
+        with mock.patch("spice_engine.subprocess.run", side_effect=failure):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(DC_SIM, exe="fake-ngspice")
+        self.assertIn("fake-ngspice", str(cm.exception))
+        self.assertIn("launch failed: missing dll", str(cm.exception))
+
+    def test_timeout_error_includes_stderr_and_log(self):
+        def timeout_with_log(cmd, **kwargs):
+            log = Path(cmd[cmd.index("-o") + 1])
+            log.write_text("log diagnostic before timeout\n", encoding="utf-8")
+            raise subprocess.TimeoutExpired(
+                cmd, 0.25, output="partial stdout", stderr="partial stderr"
+            )
+
+        with mock.patch("spice_engine.subprocess.run", side_effect=timeout_with_log):
+            with self.assertRaises(SpiceError) as cm:
+                run_analysis(DC_SIM, exe="fake-ngspice", timeout=0.25)
+        message = str(cm.exception)
+        self.assertIn("partial stdout", message)
+        self.assertIn("partial stderr", message)
+        self.assertIn("log diagnostic before timeout", message)
+
+    def test_relative_exe_path_is_resolved_before_run(self):
+        def absolute_exe_writes_log(cmd, **kwargs):
+            if Path(cmd[0]).is_absolute():
+                log = Path(cmd[cmd.index("-o") + 1])
+                log.write_text(FAKE_LOG_OP, encoding="utf-8")
+            return CompletedProcess(cmd, 0, stdout="")
+
+        with tempfile.TemporaryDirectory() as root:
+            exe = Path(root) / "ngspice.exe"
+            exe.write_text("not really an executable", encoding="utf-8")
+            relative_exe = os.path.relpath(str(exe), str(Path.cwd()))
+            self.assertFalse(Path(relative_exe).is_absolute())
+            with mock.patch("spice_engine.subprocess.run",
+                            side_effect=absolute_exe_writes_log):
+                out = run_analysis(DC_SIM, exe=relative_exe)
+        self.assertEqual(out["status"], "success")
+        self.assertAlmostEqual(out["data"]["vce"], 8.1)
 
 
 if __name__ == "__main__":

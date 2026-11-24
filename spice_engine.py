@@ -339,8 +339,12 @@ def _raw_int(header: str, label: str) -> int:
     return int(match.group(1))
 
 
-def _raw_columns(blob: bytes) -> dict[str, list[float]]:
-    """Read variable columns from an ASCII or binary ngspice raw file."""
+def _raw_columns(blob: bytes) -> dict[str, list[float | complex]]:
+    """Read variable columns from an ASCII or binary ngspice raw file.
+
+    Raw values are row-major (point, then variable). Complex raw files store
+    each variable's real/imaginary doubles adjacently within each point.
+    """
     if not blob:
         raise ValueError("empty raw file")
     # The first 4/8 bytes identify a header-bearing raw file; a bare binary
@@ -355,6 +359,9 @@ def _raw_columns(blob: bytes) -> dict[str, list[float]]:
     if nvar < 1 or npoints < 1:
         raise ValueError("raw file has no variables or points")
 
+    flags = re.search(r"^Flags:\s*(.*)$", header, re.MULTILINE)
+    width = 2 if flags and "complex" in flags.group(1).lower() else 1
+
     if "Variables:" not in header:
         raise ValueError("raw file lacks Variables section")
     var_block = header.split("Variables:", 1)[1]
@@ -367,40 +374,110 @@ def _raw_columns(blob: bytes) -> dict[str, list[float]]:
     if len(names) != nvar:
         raise ValueError("raw variable list does not match No. Variables")
 
+    values: list[float | complex] = []
     if "Binary:" in header:
         payload = blob.split(b"Binary:", 1)[1].lstrip(b"\r\n")
         if payload[:1] == b"\x00":  # ngspice pad byte before the doubles
             payload = payload[1:]
-        count = nvar * npoints
+        count = nvar * npoints * width
         if len(payload) < count * 8:
             raise ValueError("truncated binary raw data")
-        values = list(struct.unpack(f"<{count}d", payload[:count * 8]))
+        doubles = struct.unpack(f"<{count}d", payload[:count * 8])
+        for point in range(npoints):
+            for var in range(nvar):
+                base = (point * nvar + var) * width
+                values.append(
+                    complex(doubles[base], doubles[base + 1])
+                    if width == 2 else float(doubles[base])
+                )
     else:
         if "Values:" not in header:
             raise ValueError("raw file has neither Values nor Binary section")
         values_text = blob.decode("utf-8", errors="replace").split("Values:", 1)[1]
-        rows: list[list[float]] = []
+        rows = 0
         for line in values_text.splitlines():
             fields = [field.strip() for field in line.replace(",", " ").split() if field.strip()]
             if not fields or not fields[0].isdigit():
                 continue
-            row = [float(field) for field in fields[1:1 + nvar]]
-            if len(row) != nvar:
+            row = [float(field) for field in fields[1:1 + nvar * width]]
+            if len(row) != nvar * width:
                 raise ValueError("malformed ASCII raw row")
-            rows.append(row)
-        if len(rows) < npoints:
+            for var in range(nvar):
+                values.append(
+                    complex(row[var * 2], row[var * 2 + 1])
+                    if width == 2 else row[var]
+                )
+            rows += 1
+        if rows < npoints:
             raise ValueError("ASCII raw data has too few points")
-        values = [value for row in rows[:npoints] for value in row]
+        values = values[:npoints * nvar]
 
-    if not all(math.isfinite(value) for value in values):
-        raise ValueError("non-finite raw value")
+    for value in values:
+        finite = (
+            math.isfinite(value.real) and math.isfinite(value.imag)
+            if isinstance(value, complex) else math.isfinite(value)
+        )
+        if not finite:
+            raise ValueError("non-finite raw value")
     return {
-        name: [values[index * npoints + point] for point in range(npoints)]
-        for index, name in enumerate(names)
+        name: [values[point * nvar + var] for point in range(npoints)]
+        for var, name in enumerate(names)
     }
 
 
-def _parse_raw(sim: SimInput, columns: Mapping[str, list[float]],
+def _real_column(values: list[float | complex], label: str) -> list[float]:
+    """Return a raw column as real numbers, rejecting imaginary components."""
+    result: list[float] = []
+    for value in values:
+        if isinstance(value, complex):
+            if abs(value.imag) > 1e-12:
+                raise ValueError(f"raw {label} must be real")
+            result.append(value.real)
+        else:
+            result.append(float(value))
+    return result
+
+
+def _ac_points_from_dB(columns: Mapping[str, list[float | complex]],
+                       freqs: list[float]) -> list[dict] | None:
+    """Use vdb/vp columns when the raw file stores dB and degrees directly."""
+    names = ("vdb(in)", "vdb(out)", "vp(in)", "vp(out)")
+    if any(name not in columns for name in names):
+        return None
+    return [
+        {
+            "freq_hz": freqs[index],
+            "gain_db": columns["vdb(out)"][index] - columns["vdb(in)"][index],
+            "phase_deg": columns["vp(out)"][index] - columns["vp(in)"][index],
+        }
+        for index in range(len(freqs))
+    ]
+
+
+def _ac_points_from_complex(columns: Mapping[str, list[float | complex]],
+                            freqs: list[float]) -> list[dict]:
+    """Derive gain/phase from real ngspice complex v(in)/v(out) columns."""
+    points: list[dict] = []
+    for index, frequency in enumerate(freqs):
+        vin = columns["v(in)"][index]
+        vout = columns["v(out)"][index]
+        if not isinstance(vin, complex) or not isinstance(vout, complex):
+            raise ValueError("raw AC voltage columns are not complex")
+        if abs(vin) == 0.0 or abs(vout) == 0.0:
+            raise ValueError("raw AC voltage magnitude is zero")
+        gain = 20.0 * math.log10(abs(vout) / abs(vin))
+        phase = math.degrees(
+            math.atan2(vout.imag, vout.real) - math.atan2(vin.imag, vin.real)
+        )
+        points.append({
+            "freq_hz": frequency,
+            "gain_db": gain,
+            "phase_deg": phase,
+        })
+    return points
+
+
+def _parse_raw(sim: SimInput, columns: Mapping[str, list[float | complex]],
                warnings: list[str]) -> tuple[dict, dict]:
     """Map raw-file variable columns onto the analysis result shape."""
     if sim.analysis == "dc":
@@ -408,19 +485,31 @@ def _parse_raw(sim: SimInput, columns: Mapping[str, list[float]],
         return _dc_data(sim, values, warnings), {}
 
     if sim.analysis == "ac":
-        names = ("vdb(in)", "vdb(out)", "vp(in)", "vp(out)")
-        if any(name not in columns for name in names):
-            raise ValueError("raw AC file lacks vdb/vp variables")
-        npoints = len(columns[names[0]])
-        freqs = columns.get("freq", [float(index) for index in range(npoints)])
-        points = [
-            {
-                "freq_hz": freqs[index],
-                "gain_db": columns["vdb(out)"][index] - columns["vdb(in)"][index],
-                "phase_deg": columns["vp(out)"][index] - columns["vp(in)"][index],
-            }
-            for index in range(npoints)
-        ]
+        frequency_key = next(
+            (name for name in ("frequency", "freq") if name in columns), None
+        )
+        if frequency_key is None:
+            raise ValueError("raw AC file lacks frequency column")
+        freqs = _real_column(columns[frequency_key], "frequency")
+        complex_voltages = all(
+            name in columns and columns[name]
+            and all(isinstance(value, complex) for value in columns[name])
+            for name in ("v(in)", "v(out)")
+        )
+        if complex_voltages:
+            points = _ac_points_from_complex(columns, freqs)
+        else:
+            points = _ac_points_from_dB(columns, freqs)
+            if points is None:
+                missing = next(
+                    (name for name in ("v(in)", "v(out)") if name not in columns),
+                    None,
+                )
+                if missing is not None:
+                    raise ValueError(f"raw AC file lacks {missing} voltage column")
+                raise ValueError(
+                    "raw AC voltages are not complex and vdb/vp columns are absent"
+                )
         return points, _ac_summary(points, warnings)
 
     names = ("time", "v(in)", "v(out)")
@@ -453,8 +542,13 @@ def run_analysis(sim: SimInput, exe: str | None = None,
     """
     if exe is None:
         exe = find_ngspice()
-    elif _is_command_name(exe) is False and not Path(exe).is_file():
-        raise SpiceError(f"ngspice executable not found: {exe}")
+    elif not _is_command_name(exe):
+        exe_path = Path(exe)
+        if not exe_path.is_file():
+            raise SpiceError(f"ngspice executable not found: {exe}")
+        # The child runs in a fresh cwd, so a relative path must be resolved
+        # before it is placed in the command list.
+        exe = str(exe_path.resolve())
 
     model_path = Path(__file__).resolve().parent / "spice" / "q1_npn.model"
     if not model_path.is_file():
@@ -477,10 +571,15 @@ def run_analysis(sim: SimInput, exe: str | None = None,
                 text=True, timeout=timeout, env=child_env,
             )
         except subprocess.TimeoutExpired as exc:
-            partial = _text(exc.output)
+            diagnostics = (
+                _text(exc.output), _text(exc.stderr), _read_text(log_path)
+            )
+            partial = "\n".join(part for part in diagnostics if part)
             raise SpiceError(
                 f"ngspice timed out after {timeout}s\n{_excerpt(partial)}"
             ) from None
+        except OSError as exc:
+            raise SpiceError(f"could not start ngspice '{exe}': {exc}") from None
 
         log_text = _text(process.stdout) + "\n" + _read_text(log_path)
         stderr_text = _text(process.stderr)
