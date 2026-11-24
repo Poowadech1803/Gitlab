@@ -49,10 +49,11 @@ python -m flask --app app run
 ## การรัน Automated Tests
 
 ```powershell
-python -m unittest discover -s tests -v
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
 ```
 
-ผลล่าสุด: **OK 29/29** (tests เดิม Lab 02 ยังอยู่ครบ + tests ใหม่ของ Lab 03)
+ผลล่าสุด: **OK 96/96** (`.\.venv\Scripts\python.exe -m unittest discover -s tests -v`)
+— tests เดิม Lab 02/03 ยังอยู่ครบ + tests ใหม่ของ Lab 04
 
 ## สามโหมดและสมการที่ใช้
 
@@ -164,3 +165,118 @@ Commit SHA ของงาน Lab 03 (base `b567473`):
 
 **ผลลัพธ์:** solver ส่งกลับ **dict** ผ่าน `BiasResult.to_dict()` คีย์/หน่วยคงที่ทุกโหมด
 (`vb/ve/vc/vce` V, `ic_ma/ie_ma` mA, `ib_ua` µA) — ทดสอบใน `TestResultDict`
+
+---
+
+## Lab 04 — ngspice CE Simulator (B1–B8)
+
+This section is additive. Everything above is retained unchanged except for the one
+intentional update to the test total in `## การรัน Automated Tests` (29/29 → 96/96);
+the Lab 03 solver, `POST /calculate`, equations, A1–A5 evidence, references and SHA notes
+are untouched. Use `.venv\Scripts\python.exe` for every Python command.
+
+### What changed
+
+- A second form, **SPICE Simulation**, posts to `POST /simulate` and runs **real ngspice**
+  for **DC operating point, AC sweep and transient** analysis. Each run executes one
+  analysis directive; changing the analysis only refreshes the form (no ngspice run).
+- There is **no bypass capacitor** in the CE circuit (the handout's bypass cap was
+  deliberately not added), so the AC response includes emitter degeneration.
+- `POST /calculate` is untouched. DC simulation displays a *SPICE (ngspice)* table plus
+  an *Analytical (Lab 03)* reference for comparison; AC/transient display their plots
+  without a stale analytical table.
+- B1–B8 browser acceptance used **OpenCode Browser** (`tools.browser.*`, in-app Chromium),
+  the same fallback used for A1–A5 because Playwright MCP is not configured here.
+  Full observed results: [`docs/validation.md`](docs/validation.md) →
+  `Lab 04 — Browser Validation (B1–B8)`.
+
+### Project structure additions (on top of Lab 03)
+
+```
+transistor-simulator/
+├── spice_engine.py       # form validation/unit conversion, netlist builder, ngspice runner + raw/log parsers
+├── plots.py              # inline Bode (Frequency/Gain/Phase) and waveform (Time/Vin/Vout) SVG
+├── spice/q1_npn.model    # local documented Q1_NPN 2N3904-style NPN model (not the Starter Kit model)
+├── docs/spice-samples/   # real trimmed ngspice logs + provenance/README.md
+├── static/app.js         # "Running…" client-side status + simulation form UX
+└── docs/validation-screenshots/
+    ├── b2-dc-desktop.png
+    ├── b4-ac-desktop.png
+    └── b8-mobile-css-forced.png
+```
+
+### Installing ngspice and running the app (PowerShell)
+
+SourceForge serves an HTML meta-refresh landing page and the direct
+`downloads.sourceforge.net` target returns HTTP 403 `no` (Cloudflare); alternate mirrors
+return 403/000. Chocolatey API returns a JS challenge (403), and GitHub Actions artifact
+API returns 401. These hosts are blocked in this environment, so they were **not retried**;
+the failure is environmental, not a bad URL.
+
+Use the official MSYS2 package instead:
+`mingw-w64-clang-x86_64-ngspice-47-1-any.pkg.tar.zst` from
+`https://repo.msys2.org/mingw/clang64/...`, SHA256
+`19fe487b8266ade9cb93513fd35fac385968824d146bca0e07891c374eae2535`,
+extracted to `%LOCALAPPDATA%\ngspice-47\clang64`. Required DLLs came from
+`repo.msys2.org` (libc++ 23.1.5-1, fftw 3.3.11-2, llvm-openmp 23.1.5-1);
+**do not use `mirror.msys2.org`** — it redirects to a 403 mirror.
+ngspice hardcodes `/clang64/lib/ngspice` and `/clang64/share/ngspice/scripts`, so copy
+those directories to `C:\clang64\lib\ngspice` and `C:\clang64\share\ngspice\scripts`.
+
+```powershell
+$env:NGSPICE_EXE = "$env:LOCALAPPDATA\ngspice-47\clang64\bin\ngspice.exe"
+$env:PATH = (Split-Path $env:NGSPICE_EXE -Parent) + [IO.Path]::PathSeparator + $env:PATH
+# The bin directory MUST be prepended to PATH: without the DLLs, ngspice exits -1073741515.
+.\.venv\Scripts\python.exe -m flask --app app run
+```
+
+Open **http://127.0.0.1:5000/** (Flask server only; `file://` cannot call the backend).
+`NGSPICE_EXE` explicitly selects the executable above; without it the app falls back to
+PATH/`where ngspice`. Code-model provenance and real-run numbers:
+[`docs/spice-samples/README.md`](docs/spice-samples/README.md).
+
+The engine version label shown in results is **`47-1 (MSYS2 package, upstream ngspice 47)`**.
+`ngspice.exe --version/-v/-h` print nothing (exit 0) and `-V` hangs, so the label comes from
+the verified package filename plus a successful `.op` sanity run, not a CLI banner.
+
+### Simulation form — exact units and defaults
+
+| Field | Unit shown | Default |
+|---|---|---|
+| Analysis | `dc` / `ac` / `tran` (radio) | `dc` |
+| VCC | V | 12 |
+| R1 | kΩ | 100 |
+| R2 | kΩ | 22 |
+| RC | kΩ | 2.2 |
+| RE | kΩ | 1 |
+| RL | kΩ | 10 |
+| Cin | µF | 10 |
+| Cout | µF | 10 |
+| amp | mV peak | 10 |
+| freq | kHz | 1 |
+
+All values must be present, numeric, finite and strictly positive; RE=0 is rejected.
+
+### SPICE vs Analytical and current sign
+
+The *Analytical (Lab 03)* reference is the Forward-Active approximation with fixed
+**β = 100** and **VBE = 0.70 V** from `dc_bias.py`. SPICE uses the local **Gummel-Poon-style
+2N3904 model** `Q1_NPN` (`spice/q1_npn.model`), so the two are not expected to agree exactly.
+At the defaults above, the observed DC results were **SPICE VB 2.00 V / IC 1.42 mA** versus
+**Analytical VB 1.94 V / IC 1.23 mA** (full observed table in `docs/validation.md`, B2) —
+a model difference, not a regression of the Lab 03 solver.
+
+The real DC raw file has no `i(rc)`, so `ic_ma` is reported from **`-i(vcc)`** (sign inverted
+to a positive supply-current magnitude) with the warning
+`i(rc) missing; used -i(vcc) for ic_ma`. It is an approximation to collector current; the
+parser still prefers an explicit `i(rc)` when a log provides one. Details and observed real
+numbers: [`docs/spice-samples/README.md`](docs/spice-samples/README.md).
+
+### Validation screenshots
+
+`docs/validation-screenshots/b2-dc-desktop.png`,
+`docs/validation-screenshots/b4-ac-desktop.png` and
+`docs/validation-screenshots/b8-mobile-css-forced.png` accompany the B1–B8 record.
+The B8 mobile check was CSSOM-forced at a 390 px document width; the harness has no true
+viewport emulation (see the caveat in `docs/validation.md`).
+
