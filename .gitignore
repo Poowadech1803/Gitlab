@@ -17,3 +17,9 @@ env/
 Thumbs.db
 .vscode/
 .idea/
+
+# Temporary SPICE run artifacts (intentionally committed samples under docs/ stay tracked)
+*.raw
+*.log
+!docs/**/*.raw
+!docs/**/*.log

@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Lab 03: BJT DC Bias Web App</title>
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<script src="{{ url_for('static', filename='app.js') }}" defer></script>
 </head>
 <body>
 {% set usym = {'ohm': 'Ω', 'kohm': 'kΩ', 'mohm': 'MΩ'} %}
@@ -288,6 +289,140 @@
       {% endif %}
     </section>
   </div>
+
+  {% if sim_status %}
+  <!-- ================= LAB 04 CE SIMULATOR ================= -->
+  <section class="card sim-card" aria-labelledby="sim-title">
+    <div class="sim-heading">
+      <div>
+        <h2 class="card-title" id="sim-title">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M3 12h4l2-5 4 10 2-5h6"/>
+            <circle cx="3" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+            <circle cx="21" cy="12" r="1.2" fill="currentColor" stroke="none"/>
+          </svg>
+          Lab 04 · CE Amplifier Simulator
+        </h2>
+        <p class="sim-intro">Common-emitter amplifier solved by ngspice — choose an analysis, then run the simulation.</p>
+      </div>
+      <span class="sim-badge sim-badge--{{ sim_status }}" role="status">Status: {{ sim_status }}</span>
+    </div>
+
+    <div class="sim-layout">
+      <form class="sim-controls" id="sim-form" method="post" action="/simulate">
+        <fieldset class="analysis-tabs">
+          <legend>Analysis (dc / ac / tran)</legend>
+          <div class="tab-list">
+            {% for value, label in [('dc', 'DC'), ('ac', 'AC'), ('tran', 'Transient')] %}
+            <label class="analysis-tab" for="sim_analysis_{{ value }}">
+              <input id="sim_analysis_{{ value }}" type="radio" name="analysis" value="{{ value }}" {% if sim_form.analysis == value %}checked{% endif %}>
+              <span>{{ label }}</span>
+            </label>
+            {% endfor %}
+          </div>
+          <button type="submit" name="action" value="mode" class="mode-btn sim-mode-btn">Change analysis</button>
+        </fieldset>
+
+        <div class="sim-fields">
+          {% for key, label, unit in [
+              ('vcc', 'VCC', 'V'), ('r1', 'R1', 'kΩ'), ('r2', 'R2', 'kΩ'),
+              ('rc', 'RC', 'kΩ'), ('re', 'RE', 'kΩ'), ('rl', 'RL', 'kΩ'),
+              ('cin', 'Cin', 'µF'), ('cout', 'Cout', 'µF'),
+              ('amp', 'amp', 'mV peak'), ('freq', 'freq', 'kHz')] %}
+          <div class="sim-field">
+            <label for="sim_{{ key }}">{{ label }} ({{ unit }})</label>
+            <input id="sim_{{ key }}" type="number" step="any" name="{{ key }}" value="{{ sim_form[key] }}" inputmode="decimal">
+          </div>
+          {% endfor %}
+        </div>
+
+        <button type="submit" id="sim-run" class="calc-btn sim-run">Run SPICE simulation</button>
+        <p class="probe-note">Vin is measured at node <code>in</code>; Vout is measured after Cout at node <code>out</code> (across RL). No emitter bypass capacitor.</p>
+      </form>
+
+      <div class="sim-output">
+        {% if sim_result %}
+        <dl class="sim-meta">
+          <div><dt>Engine</dt><dd>{{ sim_result.engine }}</dd></div>
+          <div><dt>Version</dt><dd>{{ sim_result.version }}</dd></div>
+          <div><dt>Model</dt><dd>{{ sim_result.model }}</dd></div>
+        </dl>
+        {% endif %}
+
+        {% if sim_errors %}
+        <div class="error-panel sim-error-panel">
+          <h3>Simulation Errors (ข้อผิดพลาด)</h3>
+          <ul class="errors">{% for e in sim_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+        </div>
+        {% endif %}
+
+        {% if sim_result %}
+        <div class="result-block">
+          <h3>SPICE (ngspice)</h3>
+          <div class="table-scroll">
+            <table class="result-table">
+              <tbody>
+                {% if sim_result.analysis == 'dc' %}
+                <tr><td>V<sub>B</sub></td><td>{{ "%.2f"|format(sim_result.data.vb) }} V</td></tr>
+                <tr><td>V<sub>E</sub></td><td>{{ "%.2f"|format(sim_result.data.ve) }} V</td></tr>
+                <tr><td>V<sub>C</sub></td><td>{{ "%.2f"|format(sim_result.data.vc) }} V</td></tr>
+                <tr><td>V<sub>CE</sub></td><td>{{ "%.2f"|format(sim_result.data.vce) }} V</td></tr>
+                <tr><td>I<sub>C</sub></td><td>{{ "%.2f"|format(sim_result.data.ic_ma) }} mA</td></tr>
+                {% else %}
+                {% for key, value in sim_result.summary.items() %}
+                <tr><td>{{ key.replace('_', ' ') }}</td><td>{{ '—' if value is none else value }}</td></tr>
+                {% endfor %}
+                {% endif %}
+              </tbody>
+            </table>
+          </div>
+          {% if sim_result.warnings %}
+          <div class="warning-box">
+            <strong>คำเตือน (Model limitation):</strong>
+            <ul>{% for w in sim_result.warnings %}<li>{{ w }}</li>{% endfor %}</ul>
+          </div>
+          {% endif %}
+        </div>
+
+        {% if analytical_ref %}
+        <div class="result-block">
+          <h3>Analytical (Lab 03)</h3>
+          <div class="table-scroll">
+            <table class="result-table">
+              <tbody>
+                <tr><td>V<sub>B</sub></td><td>{{ "%.2f"|format(analytical_ref.vb) }} V</td></tr>
+                <tr><td>V<sub>E</sub></td><td>{{ "%.2f"|format(analytical_ref.ve) }} V</td></tr>
+                <tr><td>V<sub>C</sub></td><td>{{ "%.2f"|format(analytical_ref.vc) }} V</td></tr>
+                <tr><td>V<sub>CE</sub></td><td>{{ "%.2f"|format(analytical_ref.vce) }} V</td></tr>
+                <tr><td>I<sub>C</sub></td><td>{{ "%.2f"|format(analytical_ref.ic_ma) }} mA</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="muted assumptions">β = 100, V<sub>BE</sub> = 0.70 V (forward-active approximation)</p>
+        </div>
+        {% endif %}
+        {% endif %}
+
+        {% if bode_svg %}
+        <figure class="sim-plot">
+          <figcaption>Bode plot — gain and phase vs frequency</figcaption>
+          {{ bode_svg|safe }}
+        </figure>
+        {% endif %}
+        {% if wave_svg %}
+        <figure class="sim-plot">
+          <figcaption>Waveform — Vin at node <code>in</code> and Vout at node <code>out</code></figcaption>
+          {{ wave_svg|safe }}
+        </figure>
+        {% endif %}
+
+        {% if not sim_result and not sim_errors %}
+        <p class="empty sim-empty">Choose an analysis, then press <strong>Run SPICE simulation</strong> to see results.</p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+  {% endif %}
 
   {% if errors %}
   <!-- ================= VALIDATION ERRORS ================= -->

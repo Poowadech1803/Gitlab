@@ -17,7 +17,7 @@ sub{font-size:.72em}
 
 /* ---------- Top bar ---------- */
 .topbar{background:#fff;border-bottom:1px solid var(--line)}
-.topbar-inner{max-width:1120px;margin:auto;padding:13px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}
+.topbar-inner{max-width:1280px;margin:auto;padding:13px 22px;display:flex;align-items:center;justify-content:space-between;gap:16px}
 .brand{display:flex;align-items:center;gap:14px}
 .chip-icon{width:46px;height:46px;flex:none;color:var(--teal)}
 .brand h1{font-size:1.42rem;color:var(--navy);margin:0;font-weight:700}
@@ -27,7 +27,7 @@ sub{font-size:.72em}
 .course-pill svg{width:22px;height:22px;color:#2b7cb0;flex:none}
 
 /* ---------- Layout ---------- */
-.wrap{max-width:1100px;margin:auto;padding:18px 22px 28px}
+.wrap{max-width:1280px;margin:auto;padding:18px 22px 28px}
 .columns{display:grid;grid-template-columns:350px minmax(0,1fr) 296px;gap:16px;align-items:start}
 .card{background:var(--card);border:1px solid var(--line);border-radius:10px;
   padding:16px 16px;box-shadow:0 1px 2px rgba(20,60,90,.05)}
@@ -96,7 +96,72 @@ sub{font-size:.72em}
 .goal-bar strong{white-space:nowrap;font-size:14px;padding-right:4px}
 .goal-bar p{margin:0;line-height:1.5}
 
+/* ---------- Lab 04: CE amplifier simulator ---------- */
+.sim-card{margin-top:16px}
+.sim-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.sim-heading .card-title{margin-bottom:5px}
+.sim-intro{margin:0;color:var(--muted);font-size:13px;max-width:62ch}
+.sim-badge{display:inline-flex;align-items:center;gap:7px;align-self:flex-start;
+  padding:6px 13px;border-radius:999px;border:1px solid var(--pill-line);
+  background:var(--pill);color:var(--navy);font-size:12.5px;font-weight:700;
+  letter-spacing:.02em;white-space:nowrap}
+.sim-badge::before{content:"";width:8px;height:8px;border-radius:50%;background:currentColor;flex:none}
+.sim-badge--idle{background:var(--pill);border-color:var(--pill-line);color:var(--navy)}
+.sim-badge--success{background:var(--green-bg);border-color:var(--green-line);color:var(--green-ink)}
+.sim-badge--error{background:var(--red-bg);border-color:var(--red-line);color:var(--red-ink)}
+
+.sim-layout{display:grid;grid-template-columns:minmax(0,1fr);gap:18px;align-items:start;margin-top:14px}
+.sim-controls,.sim-output{min-width:0}
+.analysis-tabs{border:0;padding:0;margin:0 0 12px;min-width:0}
+.analysis-tabs legend{padding:0;margin-bottom:6px;color:#2b4a60;font-size:12.8px;font-weight:600}
+.tab-list{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-bottom:8px}
+.analysis-tab{display:flex;align-items:center;justify-content:center;gap:7px;
+  min-width:0;padding:8px 6px;border:1px solid var(--pill-line);border-radius:7px;
+  background:var(--pill);color:var(--navy);font-size:13px;font-weight:600;cursor:pointer}
+.analysis-tab input{margin:0;accent-color:var(--teal-dark);width:15px;height:15px;flex:none}
+.analysis-tab input:checked + span{color:var(--teal-dark)}
+.analysis-tab:hover{filter:brightness(.98)}
+.analysis-tab:has(input:checked){background:var(--teal);border-color:var(--teal-dark);color:#fff}
+.analysis-tab:has(input:checked) span{color:#fff}
+.analysis-tab:focus-within{outline:2px solid var(--teal-dark);outline-offset:2px}
+.sim-mode-btn{width:100%;height:32px}
+
+.sim-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:0 12px}
+.sim-field{display:grid;grid-template-columns:minmax(0,1fr) 92px;gap:8px;align-items:center;margin:6px 0}
+.sim-field label{font-size:12.6px;color:#2b4a60;font-weight:600;line-height:1.3}
+.sim-field input{width:100%;height:30px;padding:3px 8px;border:1px solid #c9d8e4;border-radius:5px;
+  font:13.5px "Segoe UI",Tahoma,sans-serif;color:var(--ink);background:#fff}
+.sim-field input:focus{outline:2px solid var(--teal);border-color:var(--teal)}
+.sim-run{height:44px;margin-top:14px}
+.sim-run:disabled{opacity:.72;cursor:progress;filter:none}
+.probe-note{margin:12px 0 0;color:var(--muted);font-size:12.4px;line-height:1.5}
+.probe-note code{font-family:Consolas,"Courier New",monospace;background:var(--soft-blue);
+  border:1px solid var(--line);border-radius:3px;padding:0 4px}
+
+.sim-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;
+  margin:0;padding:10px 12px;background:var(--soft-blue);border:1px solid var(--line);border-radius:8px}
+.sim-meta div{min-width:0}
+.sim-meta dt{color:var(--muted);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.sim-meta dd{margin:1px 0 0;color:var(--navy);font-size:12.8px;font-weight:600;overflow-wrap:anywhere}
+.sim-error-panel{margin-top:12px}
+.sim-error-panel h3{font-size:1rem;margin:0 0 8px}
+.sim-error-panel li{overflow-wrap:anywhere}
+.result-block{margin-top:14px}
+.result-block h3{font-size:1rem;color:var(--navy);margin:0 0 7px}
+.table-scroll{width:100%;max-width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}
+.table-scroll .result-table{min-width:240px}
+.assumptions{margin:8px 0 0;font-size:12.5px}
+.sim-plot{margin:14px 0 0;padding:10px;min-width:0;overflow:hidden;
+  background:#fff;border:1px solid var(--line);border-radius:8px}
+.sim-plot figcaption{color:var(--muted);font-size:12.5px;font-weight:600;margin-bottom:6px}
+.sim-plot svg{display:block;width:100%;height:auto;max-width:100%}
+.sim-empty{margin-top:14px}
+
 /* ---------- Responsive ---------- */
+@media(min-width:1180px){
+  .sim-layout{grid-template-columns:minmax(300px,360px) minmax(0,1fr)}
+  .sim-fields{grid-template-columns:1fr}
+}
 @media(max-width:1000px){
   .columns{grid-template-columns:1fr 1fr}
   .results-card{grid-column:1/-1}
@@ -106,10 +171,18 @@ sub{font-size:.72em}
   .results-card{grid-column:auto}
   .topbar-inner{flex-direction:column;align-items:flex-start}
   .wrap{padding:12px 14px 22px}
+  .sim-card{padding:14px}
+  .sim-heading{gap:9px}
+  .sim-badge{align-self:stretch;justify-content:center}
+  .sim-fields{grid-template-columns:1fr}
+  .tab-list{gap:5px}
+  .analysis-tab{padding:8px 4px;font-size:12.5px}
+  .sim-meta{grid-template-columns:1fr}
+  .result-table{font-size:13px}
 }
 
 @media print{
   body{background:#fff}
   .topbar{-webkit-print-color-adjust:exact;print-color-adjust:exact}
-  .card,.goal-bar{break-inside:avoid}
+  .card,.goal-bar,.sim-plot{break-inside:avoid}
 }
