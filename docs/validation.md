@@ -151,3 +151,43 @@ B4's AC figures (`midband_gain_db 1.3762`, `f_low_hz 1.5849`) were measured afte
 → `Ran 96 tests` … `OK`. Model provenance, real spikes and the `ic_ma` sign derivation are
 in [`docs/spice-samples/README.md`](spice-samples/README.md).
 
+### References
+
+- ใบงาน Lab 04 ต้นฉบับ: `Lab04_BJT_Amplifier_Simulator_2-2569.html` (ใช้ตรวจ DoD และเกณฑ์ B1–B8)
+- ngspice: official MSYS2 package `mingw-w64-clang-x86_64-ngspice-47-1-any.pkg.tar.zst`,
+  SHA256 `19fe487b8266ade9cb93513fd35fac385968824d146bca0e07891c374eae2535`,
+  `https://repo.msys2.org/mingw/clang64/...`; engine label
+  `47-1 (MSYS2 package, upstream ngspice 47)`
+- หลักฐานการรันจริง/ที่มาของโมเดล/การอนุมานเครื่องหมาย `ic_ma`:
+  [`docs/spice-samples/README.md`](spice-samples/README.md)
+- Analytical reference: `dc_bias.py` แบบ Forward-Active, **β = 100**, **VBE = 0.70 V**
+- เอกสารกำกับงาน: [`design`](superpowers/specs/2026-11-24-lab04-ce-spice-simulator-design.md),
+  [`docs close-out design`](superpowers/specs/2026-11-24-lab04-docs-closeout-design.md),
+  [`plan`](superpowers/plans/2026-11-24-lab04-docs-closeout.md)
+
+### Observed discrepancies
+
+- **B2 DC:** SPICE `VB 2.00 V / VE 1.33 V / VC 9.09 V / VCE 7.75 V / IC 1.42 mA`
+  เทียบ Analytical `1.94 / 1.24 / 9.29 / 8.05 / 1.23`. ความต่างเกิดจากโมเดลทรานซิสเตอร์
+  (Gummel-Poon-style `Q1_NPN`) เทียบการประมาณ β/VBE คงที่ ไม่ใช่ regression ของ Lab 03
+- **B4 AC:** ตัวเลข `midband_gain_db 1.3762`, `f_low_hz 1.5849` วัดหลัง B3 เปลี่ยน RE
+  จาก 1 kΩ เป็น 1.5 kΩ ส่วน sample log ที่ค่า default RE=1 kΩ ให้ `4.8896 dB`, `1.7783 Hz`
+- **`ic_ma`:** raw file ไม่มี `i(rc)` จึงรายงาน `-i(vcc)` = 1.4239558663 mA พร้อม warning
+  `i(rc) missing; used -i(vcc) for ic_ma`; RC-drop estimate อยู่ที่ 1.3239921567 mA
+  ส่วนต่าง ~0.1 mA คือกระแส divider/base ที่ไหลผ่าน VCC ด้วย
+
+### Limitations
+
+- วงจร CE **ไม่มี emitter bypass capacitor** → การตอบสนอง AC รวม emitter degeneration
+- โมเดลเป็น `Q1_NPN` แบบ local 2N3904-style ไม่ใช่ Starter Kit ของอาจารย์
+- เวอร์ชันมาจากชื่อแพ็กเกจ MSYS2 + `.op` sanity run เพราะ `ngspice.exe --version/-v/-h`
+  ไม่พิมพ์ข้อความและ `-V` ค้าง จึงไม่มี CLI banner มาแสดง
+- B8 ตรวจ mobile แบบ CSSOM-forced ที่ความกว้างเอกสาร 390 px **ไม่ใช่ native viewport**
+  และมี shared-tab caveat ตามที่บันทึกไว้ข้างบน
+- **Playwright MCP — NOT RUN**, **Impeccable skill — NOT RUN**; ใช้ OpenCode Browser
+  (`tools.browser.*`) + code review/manual inspection แทนตามที่ใบงานอนุญาต
+- `f_high_hz = None` เพราะสแกน 1 Hz–10 MHz ยังไม่ถึงจุดตัดบน มี warning
+  "not determined in sweep range" กำกับเสมอ
+- ต้องตั้ง `NGSPICE_EXE` และเติม bin directory ของ ngspice ลง PATH ก่อนรัน
+  มิเช่นนั้น DLL loading ล้มเหลวด้วย exit `-1073741515`
+

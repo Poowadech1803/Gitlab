@@ -282,3 +282,45 @@ numbers: [`docs/spice-samples/README.md`](docs/spice-samples/README.md).
 The B8 mobile check was CSSOM-forced at a 390 px document width; the harness has no true
 viewport emulation (see the caveat in `docs/validation.md`).
 
+### Handoff identity
+
+- Repository: https://github.com/Poowadech1803/Gitlab
+- Lab 04 implementation snapshot (commit SHA): `e9b2ffb`
+- This SHA is the pushed code snapshot *before* this documentation-only commit. It is written
+  deliberately so the docs never contain their own future SHA (no self-reference).
+
+### B1–B8 validation summary (mirrored from docs/validation.md)
+
+| Case | Method / Input | Expected | Observed | Evidence | Status |
+|---|---|---|---|---|---|
+| B1 | `GET /`, then click **Calculate DC Bias** (`POST /calculate`) with Lab 03 defaults | Lab 03 and Lab 04 both render; DC result matches Lab 03 reference; no `#sim-form` | Lab 03 + Lab 04 rendered; **VB 1.94 V / VE 1.24 V / VC 9.29 V / VCE 8.05 V / IC 1.23 mA**; no `#sim-form` | page snapshot for GET and POST | PASS |
+| B2 | Select `dc`, click **Run SPICE simulation** (`POST /simulate`) at defaults | Status success; engine ngspice; version `47-1 (MSYS2 package, upstream ngspice 47)`; model `Q1_NPN`; SPICE and Analytical tables | Status success; engine ngspice; version `47-1 (MSYS2 package, upstream ngspice 47)`; model `Q1_NPN`. SPICE **VB 2.00 V / VE 1.33 V / VC 9.09 V / VCE 7.75 V / IC 1.42 mA** vs Analytical **1.94 / 1.24 / 9.29 / 8.05 / 1.23**. Warning: `i(rc) missing; used -i(vcc) for ic_ma` | page snapshot; `docs/validation-screenshots/b2-dc-desktop.png` | PASS |
+| B3 | Change RE 1 → 1.5 kΩ, rerun `dc` | Higher RE raises VE, VC, VCE and lowers IC in both models | SPICE VE 1.33 → 1.39 V, VC 9.09 → 9.98 V, VCE 7.75 → 8.59 V, IC 1.42 → 1.02 mA; Analytical also moved VE 1.24 → 1.31 V and IC 1.23 → 0.86 mA | page snapshot after rerun | PASS |
+| B4 | Change analysis to `ac` (**Change analysis**), then **Run SPICE simulation** | Mode switch leaves Status idle, 0 tables and 0 SVG (no ngspice run); run succeeds with labeled Bode SVG and two polylines | After change: Status idle, 0 tables, 0 SVG (no ngspice run). Run: success, Bode SVG with `Frequency (Hz)` / `Gain (dB)` / `Phase (°)`, 2 polylines, `midband_gain_db 1.3762`, `f_low_hz 1.5849`, `f_high_hz None` + "not determined in sweep range" warning | page snapshot; `docs/validation-screenshots/b4-ac-desktop.png` | PASS |
+| B5 | Change analysis to `tran`, then **Run SPICE simulation** | Mode switch idle with 0 tables/0 SVG; run succeeds with waveform SVG and inverted phase relation | Idle: 0 tables/0 SVG. Run: success, waveform SVG `Time (ms)` / `Vin, Vout (V)`, 2 polylines, phase relation `inverted`; traces leave the same start point in opposite directions | page snapshot | PASS |
+| B6 | Change amp 10 → 50 mV and freq 1 → 2 kHz, rerun `tran` | Polylines and axis ticks rescale; inversion retained | Polyline points changed; voltage ticks +/-0.0117 → +/-0.0586 V; time axis 0..5 → 0..2.5 ms; still inverted | page snapshots before/after | PASS |
+| B7 | Set RE=0, rerun `dc` | Status error naming RE; no stale result tables or plots | Status error; error `RE ต้องมากกว่า 0 (RE must be > 0)`; 0 tables; 0 SVG; no stale `SPICE (ngspice)` / `Analytical (Lab 03)` / `Vin, Vout (V)` text | page snapshot after error | PASS |
+| B8 | Inspect computed `.sim-layout` on desktop; emulate mobile by forcing the CSS media blocks at a 390 px document width; capture screenshot | Desktop two-column layout; mobile single stacked column with no horizontal overflow | Desktop `.sim-layout` computed 360px 824px; at forced 390px document width: single column 332px, form and output stacked at the same left offset, SVG 310px fits 332px, body `scrollWidth=clientWidth=390`. Harness has no true viewport emulation or window resize, so mobile is a CSSOM-forced check plus screenshot, **not** a native 390px viewport | CSSOM measurements; `docs/validation-screenshots/b8-mobile-css-forced.png` | PASS (caveat) |
+
+Full ledger with tool availability and caveats: [`docs/validation.md`](docs/validation.md) → `Lab 04 — Browser Validation (B1–B8)`.
+
+### UI polish record (no Impeccable run)
+
+- **Impeccable skill — NOT RUN** in this session. It was not available/configured, so no Impeccable adjustment is claimed.
+- The actual UI polish is commit `e578b43` (`feat(ui): polish CE simulator form, results, and responsive layout`), which changed `templates/index.html`, `static/style.css` and `static/app.js`: two-column `.sim-layout`, labelled axes/units in the inline SVG, distinct SPICE vs Analytical tables, and a client-side “Running…” state.
+- Method: task-scoped code review plus manual desktop/mobile inspection in OpenCode Browser. No fabricated before/after screenshot pair was created; the committed screenshots below are the real evidence.
+- Playwright MCP is also **NOT RUN**; the browser evidence came from OpenCode Browser (`tools.browser.*`), which the handout allows as fallback.
+
+![B2 DC simulation in a real browser](docs/validation-screenshots/b2-dc-desktop.png)
+
+![B4 AC Bode plot in a real browser](docs/validation-screenshots/b4-ac-desktop.png)
+
+![B8 mobile-width layout check in a real browser](docs/validation-screenshots/b8-mobile-css-forced.png)
+
+### AI และสิ่งที่นักศึกษาตรวจเอง
+
+- AI สร้าง/แก้: `spice_engine.py` (สร้าง netlist, validate/แปลงหน่วย, เรียก ngspice จริง, parse ผล), `plots.py` (SVG Bode/waveform) และ `app.py` (`POST /simulate`)
+- AI เขียน docs/tests: README, `docs/validation.md`, `docs/spice-samples/README.md` และชุดทดสอบ Lab 04 (รวม 96 tests)
+- นักศึกษาตรวจเอง: แปลงหน่วย kΩ/µF/kHz จากฟอร์ม→netlist ให้ถูกต้อง และคำนวณ DC ด้วยมือ 1 จุดเทียบ `dc_bias.py`
+- นักศึกษาตรวจเอง: เปิด browser จริง รัน `dc` / `ac` / `tran` เทียบ SPICE กับ Analytical แล้วทำซ้ำ B1–B8 ตามตารางข้างบน
+
