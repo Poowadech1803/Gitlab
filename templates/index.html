@@ -289,6 +289,81 @@
     </section>
   </div>
 
+  {% if sim_status %}
+  <!-- ================= LAB 04 CE SIMULATOR ================= -->
+  <section class="card sim-card">
+    <h2 class="card-title">Lab 04 · CE Amplifier Simulator</h2>
+    <form method="post" action="/simulate">
+      <div class="param-row mode-row">
+        <label for="sim_analysis">Analysis</label>
+        <select id="sim_analysis" name="analysis" class="mode-select">
+          <option value="dc" {% if sim_form.analysis == 'dc' %}selected{% endif %}>DC</option>
+          <option value="ac" {% if sim_form.analysis == 'ac' %}selected{% endif %}>AC</option>
+          <option value="tran" {% if sim_form.analysis == 'tran' %}selected{% endif %}>Transient</option>
+        </select>
+        <button type="submit" name="action" value="mode" class="mode-btn">Change analysis</button>
+      </div>
+      {% for key, label, unit in [
+          ('vcc', 'VCC', 'V'), ('r1', 'R1', 'kΩ'), ('r2', 'R2', 'kΩ'),
+          ('rc', 'RC', 'kΩ'), ('re', 'RE', 'kΩ'), ('rl', 'RL', 'kΩ'),
+          ('cin', 'Cin', 'µF'), ('cout', 'Cout', 'µF'),
+          ('amp', 'Amp', 'mV'), ('freq', 'Freq', 'kHz')] %}
+      <div class="param-row">
+        <label for="sim_{{ key }}">{{ label }} ({{ unit }})</label>
+        <input id="sim_{{ key }}" type="number" step="any" name="{{ key }}" value="{{ sim_form[key] }}">
+      </div>
+      {% endfor %}
+      <button type="submit" class="calc-btn">Run SPICE simulation</button>
+    </form>
+
+    <p class="sim-status">Status: {{ sim_status }}</p>
+
+    {% if sim_errors %}
+    <div class="error-panel">
+      <h3>Simulation Errors (ข้อผิดพลาด)</h3>
+      <ul class="errors">{% for e in sim_errors %}<li>{{ e }}</li>{% endfor %}</ul>
+    </div>
+    {% endif %}
+
+    {% if sim_result %}
+    <h3>SPICE (ngspice)</h3>
+    <table class="result-table">
+      <tbody>
+        {% if sim_result.analysis == 'dc' %}
+        <tr><td>V<sub>B</sub></td><td>{{ "%.2f"|format(sim_result.data.vb) }} V</td></tr>
+        <tr><td>V<sub>E</sub></td><td>{{ "%.2f"|format(sim_result.data.ve) }} V</td></tr>
+        <tr><td>V<sub>C</sub></td><td>{{ "%.2f"|format(sim_result.data.vc) }} V</td></tr>
+        <tr><td>V<sub>CE</sub></td><td>{{ "%.2f"|format(sim_result.data.vce) }} V</td></tr>
+        <tr><td>I<sub>C</sub></td><td>{{ "%.2f"|format(sim_result.data.ic_ma) }} mA</td></tr>
+        {% else %}
+        {% for key, value in sim_result.summary.items() %}
+        <tr><td>{{ key.replace('_', ' ') }}</td><td>{{ value }}</td></tr>
+        {% endfor %}
+        {% endif %}
+      </tbody>
+    </table>
+    <p class="muted">{{ sim_result.engine }} · {{ sim_result.version }} · {{ sim_result.model }}</p>
+    {% endif %}
+
+    {% if analytical_ref %}
+    <h3>Analytical (Lab 03)</h3>
+    <table class="result-table">
+      <tbody>
+        <tr><td>V<sub>B</sub></td><td>{{ "%.2f"|format(analytical_ref.vb) }} V</td></tr>
+        <tr><td>V<sub>E</sub></td><td>{{ "%.2f"|format(analytical_ref.ve) }} V</td></tr>
+        <tr><td>V<sub>C</sub></td><td>{{ "%.2f"|format(analytical_ref.vc) }} V</td></tr>
+        <tr><td>V<sub>CE</sub></td><td>{{ "%.2f"|format(analytical_ref.vce) }} V</td></tr>
+        <tr><td>I<sub>C</sub></td><td>{{ "%.2f"|format(analytical_ref.ic_ma) }} mA</td></tr>
+      </tbody>
+    </table>
+    <p class="muted">β = 100, V<sub>BE</sub> = 0.70 V (forward-active approximation)</p>
+    {% endif %}
+
+    {% if bode_svg %}<div class="sim-plot">{{ bode_svg|safe }}</div>{% endif %}
+    {% if wave_svg %}<div class="sim-plot">{{ wave_svg|safe }}</div>{% endif %}
+  </section>
+  {% endif %}
+
   {% if errors %}
   <!-- ================= VALIDATION ERRORS ================= -->
   <section class="error-panel">
